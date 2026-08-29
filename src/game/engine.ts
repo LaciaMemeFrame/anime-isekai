@@ -7,6 +7,7 @@ import {
   ENEMY_BASE,
   UPGRADES,
   BLESSINGS,
+  type ChapterDef,
   type EnemyType,
   type HeroineDef,
   type UpgradeDef,
@@ -40,6 +41,9 @@ export interface HudSnapshot {
   waveMax: number;
   ult: number;
   party: { id: string; name: string; color: string }[];
+  mode: "battle" | "world";
+  zone: string;
+  hint: string;
 }
 
 export interface EngineHandlers {
@@ -271,6 +275,24 @@ export class Engine {
   private deco: { x: number; y: number; k: number; s: number }[] = [];
   private blessingId = "blade";
 
+  // ---- открытый мир ----
+  private mode: "battle" | "world" = "battle";
+  private worldIdx = 0;
+  private mapW = 960;
+  private mapH = 640;
+  private camX = 0;
+  private camY = 0;
+  private vW = 960;
+  private vH = 640;
+  private mx = 480;
+  private my = 320;
+  private wObjs: { kind: "portal" | "spring" | "shrine" | "chest"; x: number; y: number; used: boolean }[] = [];
+  private wDeco: { x: number; y: number; k: number; s: number }[] = [];
+  private hint = "";
+  private interactCd = 0;
+  private worldSpawnT = 2.5;
+  private springSndT = 0;
+
   private onKeyDown: (e: KeyboardEvent) => void;
   private onKeyUp: (e: KeyboardEvent) => void;
   private onMouseMove: (e: MouseEvent) => void;
@@ -344,8 +366,10 @@ export class Engine {
     this.H = Math.max(480, window.innerHeight);
     this.canvas.width = this.W;
     this.canvas.height = this.H;
-    this.player.x = Math.min(Math.max(this.player.x, 30), this.W - 30);
-    this.player.y = Math.min(Math.max(this.player.y, 100), this.H - 40);
+    if (this.mode !== "world") {
+      this.player.x = Math.min(Math.max(this.player.x, 30), this.W - 30);
+      this.player.y = Math.min(Math.max(this.player.y, 100), this.H - 40);
+    }
   }
 
   // ============================ public API ============================
@@ -387,7 +411,7 @@ export class Engine {
     this.frozen = false;
     this.paused = false;
     this.combo = 0;
-    this.startChapter(0);
+    this.startWorld(0);
   }
 
   setPaused(b: boolean) {
@@ -460,7 +484,7 @@ export class Engine {
   }
 
   nextChapter() {
-    this.startChapter(this.chapterIdx + 1);
+    this.startWorld(this.chapterIdx + 1);
   }
 
   getStats(): RunStats {
@@ -469,9 +493,12 @@ export class Engine {
 
   snapshot(): HudSnapshot {
     const p = this.player;
-    const ch = CHAPTERS[this.chapterIdx];
+    const ch = CHAPTERS[this.mode === "world" ? this.worldIdx : this.chapterIdx];
     return {
-      hp: Math.max(0, Math.round(p.hp)),
+      mode: this.mode,
+      zone: ch.name,
+      hint: this.hint,
+      hp: p.hp <= 0 ? 0 : Math.max(1, Math.round(p.hp)),
       maxHp: Math.round(p.maxHp),
       xp: Math.round(p.xp),
       xpNeed: p.xpNeed,
@@ -514,6 +541,12 @@ export class Engine {
   }
 
   private startChapter(i: number) {
+    this.mode = "battle";
+    this.frozen = false;
+    this.hitstop = 0;
+    this.hint = "";
+    this.camX = 0;
+    this.camY = 0;
     this.chapterIdx = Math.min(i, CHAPTERS.length - 1);
     const ch = CHAPTERS[this.chapterIdx];
     const p = this.player;
@@ -549,6 +582,183 @@ export class Engine {
     sfx.ui();
   }
 
+  // ---------- открытый мир ----------
+
+  private startWorld(i: number) {
+    this.mode = "world";
+    this.worldIdx = Math.min(i, CHAPTERS.length - 1);
+    const ch = CHAPTERS[this.worldIdx];
+    this.mapW = 2800 + this.worldIdx * 520;
+    this.mapH = 1500 + this.worldIdx * 220;
+    this.enemies = [];
+    this.projs = [];
+    this.picks = [];
+    this.arcs = [];
+    this.floats = [];
+    this.boss = null;
+    this.waveIdx = -1;
+    this.spawnQueue = [];
+    this.frozen = false;
+    this.hitstop = 0;
+    this.hint = "";
+
+    const p = this.player;
+    p.x = 170;
+    p.y = this.mapH / 2;
+    p.inv = 2;
+    p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.35);
+    p.dashCd = 0;
+    p.waveCd = 0;
+    this.camX = 0;
+    this.camY = Math.min(Math.max(p.y - this.H / 2, 0), Math.max(0, this.mapH - this.H));
+
+    // героини, спасённые к этому моменту, путешествуют вместе с героем
+    if (i === 1 && !this.heroines.some((h) => h.def.id === "aria")) this.addHeroine("aria");
+    if (i === 2) {
+      if (!this.heroines.some((h) => h.def.id === "yuki")) this.addHeroine("yuki");
+      if (!this.heroines.some((h) => h.def.id === "lira")) this.addHeroine("lira");
+    }
+
+    const rnd = mulberry(4242 + this.worldIdx * 911);
+    this.wObjs = [];
+    this.wObjs.push({ kind: "portal", x: this.mapW - 190, y: Math.min(Math.max(this.mapH / 2 + (rnd() - 0.5) * 500, 220), this.mapH - 220), used: false });
+    this.wObjs.push({ kind: "spring", x: 520 + rnd() * (this.mapW - 1300), y: 220 + rnd() * (this.mapH - 440), used: false });
+    this.wObjs.push({ kind: "shrine", x: 760 + rnd() * (this.mapW - 1500), y: 220 + rnd() * (this.mapH - 440), used: false });
+    for (let k = 0; k < 3; k++) {
+      this.wObjs.push({ kind: "chest", x: 420 + rnd() * (this.mapW - 900), y: 180 + rnd() * (this.mapH - 360), used: false });
+    }
+    for (let k = 0; k < 14; k++) {
+      const isHeart = rnd() < 0.18;
+      this.picks.push({
+        x: 320 + rnd() * (this.mapW - 560),
+        y: 160 + rnd() * (this.mapH - 320),
+        vx: 0, vy: 0,
+        kind: isHeart ? "heart" : "cry",
+        v: isHeart ? 0 : 2 + Math.floor(rnd() * 4),
+        t: rnd() * 5,
+      });
+    }
+    this.wDeco = [];
+    for (let k = 0; k < 90; k++) {
+      this.wDeco.push({ x: rnd() * this.mapW, y: rnd() * this.mapH, k: Math.floor(rnd() * 4), s: 0.6 + rnd() });
+    }
+    this.worldSpawnT = 2.5;
+    this.banner = { text: "ОТКРЫТЫЙ МИР", sub: `${ch.name} — исследуй, собирай кристаллы, найди врата`, t: 3 };
+    this.flashWhite = 0.7;
+    sfx.join();
+  }
+
+  private spawnEnemyAt(type: Exclude<EnemyType, "boss">, x: number, y: number, tier: number) {
+    const base = ENEMY_BASE[type];
+    const mul = 1 + tier * 0.5;
+    this.enemies.push({
+      id: this.nextId++,
+      type,
+      x, y, vx: 0, vy: 0,
+      hp: base.hp * mul, maxHp: base.hp * mul,
+      r: base.r, speed: base.speed * (1 + tier * 0.08), dmg: base.dmg * (1 + tier * 0.35),
+      face: 1, t: Math.random() * 10, flash: 0, touchCd: 0,
+      state: "idle", stateT: 0, shootCd: 1 + Math.random(),
+      enraged: false, xp: base.xp, cry: base.cry,
+    });
+  }
+
+  private updateWorld(dt: number) {
+    const p = this.player;
+    // камера следует за героем
+    const tcx = this.mapW > this.W ? Math.min(Math.max(p.x - this.W / 2, 0), this.mapW - this.W) : (this.mapW - this.W) / 2;
+    const tcy = this.mapH > this.H ? Math.min(Math.max(p.y - this.H / 2, 0), this.mapH - this.H) : (this.mapH - this.H) / 2;
+    this.camX += (tcx - this.camX) * Math.min(1, dt * 6);
+    this.camY += (tcy - this.camY) * Math.min(1, dt * 6);
+    this.interactCd = Math.max(0, this.interactCd - dt);
+    this.springSndT = Math.max(0, this.springSndT - dt);
+
+    // бродячие демоны
+    this.worldSpawnT -= dt;
+    if (this.worldSpawnT <= 0) {
+      this.worldSpawnT = 2.6;
+      if (this.enemies.length < 5) {
+        const types: Exclude<EnemyType, "boss">[] = ["imp", "imp", "wraith", "spitter"];
+        const a = Math.random() * Math.PI * 2;
+        const d = 520 + Math.random() * 340;
+        const x = Math.min(Math.max(p.x + Math.cos(a) * d, 60), this.mapW - 60);
+        const y = Math.min(Math.max(p.y + Math.sin(a) * d, 90), this.mapH - 60);
+        this.spawnEnemyAt(types[Math.floor(Math.random() * types.length)], x, y, this.worldIdx);
+        this.burst(x, y - 10, "#c46bff", 8, true);
+        sfx.magic();
+      }
+    }
+
+    // источник исцеления
+    for (const o of this.wObjs) {
+      if (o.kind === "spring" && Math.hypot(o.x - p.x, o.y - p.y) < 58) {
+        if (p.hp < p.maxHp) {
+          p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.3 * dt);
+          if (Math.random() < dt * 9) {
+            this.parts.push({
+              x: o.x + (Math.random() - 0.5) * 76, y: o.y + (Math.random() - 0.5) * 34,
+              vx: 0, vy: -42 - Math.random() * 34, life: 0.8, max: 0.8,
+              size: 3, color: "rgba(124,255,207,0.85)", glow: true, grav: 0,
+            });
+          }
+          if (this.springSndT <= 0) {
+            this.springSndT = 0.55;
+            sfx.heal();
+          }
+        }
+      }
+    }
+
+    // взаимодействие
+    let near: (typeof this.wObjs)[number] | null = null;
+    let nd = 74;
+    for (const o of this.wObjs) {
+      if (o.used && o.kind !== "portal" && o.kind !== "spring") continue;
+      const d = Math.hypot(o.x - p.x, o.y - p.y);
+      if (d < nd) {
+        nd = d;
+        near = o;
+      }
+    }
+    this.hint = near
+      ? near.kind === "portal"
+        ? "E — войти во врата"
+        : near.kind === "shrine"
+          ? "E — принять благословение"
+          : near.kind === "chest"
+            ? "E — открыть сундук"
+            : "Источник исцеления — встань в воду"
+      : "Исследуй мир · найди золотые врата";
+
+    if (near && this.interactCd <= 0 && (this.keys.has("KeyE") || this.keys.has("KeyL"))) {
+      if (near.kind === "portal") {
+        this.interactCd = 1;
+        this.flashWhite = 0.95;
+        sfx.ult();
+        this.startChapter(this.worldIdx);
+        return;
+      }
+      if (near.kind === "shrine") {
+        near.used = true;
+        this.interactCd = 0.6;
+        const b = BLESSINGS[Math.floor(Math.random() * BLESSINGS.length)];
+        this.applyBlessing(b.id);
+        this.banner = { text: "БЛАГОСЛОВЕНИЕ", sub: `${b.name} · ${b.desc}`, t: 2.6 };
+        this.burst(near.x, near.y - 30, "#ffd166", 26, true);
+        sfx.gachaEpic();
+      } else if (near.kind === "chest") {
+        near.used = true;
+        this.interactCd = 0.6;
+        const v = 12 + Math.floor(Math.random() * 16);
+        this.addCrystals(v);
+        this.floats.push({ x: p.x, y: p.y - 36, life: 0.9, max: 0.9, text: `+${v} КРИСТАЛЛ`, color: "#7cc7ff", size: 14 });
+        if (Math.random() < 0.5) this.picks.push({ x: near.x, y: near.y - 12, vx: 0, vy: -70, kind: "heart", v: 0, t: 0 });
+        this.burst(near.x, near.y - 14, "#7cc7ff", 18, true);
+        sfx.crystal();
+      }
+    }
+  }
+
   private addHeroine(id: string) {
     const def = HEROINES.find((h) => h.id === id);
     if (!def) return;
@@ -569,6 +779,20 @@ export class Engine {
   private update(dt: number) {
     if (this.dead) return;
     const p = this.player;
+    if (p.hp <= 0) {
+      p.hp = 0;
+      this.playerDie();
+      return;
+    }
+    if (this.mode === "world") {
+      this.vW = this.mapW;
+      this.vH = this.mapH;
+    } else {
+      this.vW = this.W;
+      this.vH = this.H;
+    }
+    this.mx = this.mouse.x + this.camX;
+    this.my = this.mouse.y + this.camY;
     this.runTime += dt;
     p.t += dt;
 
@@ -593,8 +817,8 @@ export class Engine {
     if ((this.keys.has("Space") || this.keys.has("ShiftLeft")) && p.dashCd <= 0 && p.dashT <= 0) {
       p.dashT = 0.16;
       p.dashCd = this.effDashMax();
-      p.dashDx = len > 0 ? dx : Math.cos(Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x));
-      p.dashDy = len > 0 ? dy : Math.sin(Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x));
+      p.dashDx = len > 0 ? dx : Math.cos(Math.atan2(this.my - p.y, this.mx - p.x));
+      p.dashDy = len > 0 ? dy : Math.sin(Math.atan2(this.my - p.y, this.mx - p.x));
       sfx.dash();
     }
     if (p.dashT > 0) {
@@ -609,8 +833,9 @@ export class Engine {
       p.x += dx * this.effSpeed() * dt;
       p.y += dy * this.effSpeed() * dt;
     }
-    p.x = Math.min(Math.max(p.x, 26), this.W - 26);
-    p.y = Math.min(Math.max(p.y, 96), this.H - 30);
+    const topB = this.mode === "world" ? 44 : 96;
+    p.x = Math.min(Math.max(p.x, 26), this.vW - 26);
+    p.y = Math.min(Math.max(p.y, topB), this.vH - 30);
 
     // атака
     p.comboCd = Math.max(0, p.comboCd - dt);
@@ -626,7 +851,7 @@ export class Engine {
     p.waveCd = Math.max(0, p.waveCd - dt);
     if ((this.keys.has("KeyQ") || this.keys.has("KeyK")) && p.waveCd <= 0 && p.ultT <= 0) {
       p.waveCd = p.waveMax;
-      const a = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x);
+      const a = Math.atan2(this.my - p.y, this.mx - p.x);
       this.projs.push({
         x: p.x + Math.cos(a) * 26, y: p.y - 8 + Math.sin(a) * 26,
         vx: Math.cos(a) * 540, vy: Math.sin(a) * 540,
@@ -669,7 +894,8 @@ export class Engine {
     }
 
     this.updateHeroines(dt);
-    this.updateWaves(dt);
+    if (this.mode === "battle") this.updateWaves(dt);
+    else this.updateWorld(dt);
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
     this.updatePickups(dt);
@@ -699,14 +925,14 @@ export class Engine {
     this.ambientT -= dt;
     if (this.ambientT <= 0 && this.parts.length < 150) {
       this.ambientT = 0.14;
-      const ch = CHAPTERS[this.chapterIdx];
-      const x = Math.random() * this.W;
+      const ch = CHAPTERS[this.mode === "world" ? this.worldIdx : this.chapterIdx];
+      const x = this.camX + Math.random() * this.W;
       if (ch.ambient === "ember") {
-        this.parts.push({ x, y: this.H + 8, vx: (Math.random() - 0.5) * 24, vy: -30 - Math.random() * 40, life: 4, max: 4, size: 2 + Math.random() * 2.5, color: "rgba(255,140,60,0.7)", glow: true, grav: 0 });
+        this.parts.push({ x, y: this.camY + this.H + 8, vx: (Math.random() - 0.5) * 24, vy: -30 - Math.random() * 40, life: 4, max: 4, size: 2 + Math.random() * 2.5, color: "rgba(255,140,60,0.7)", glow: true, grav: 0 });
       } else if (ch.ambient === "ash") {
-        this.parts.push({ x, y: -8, vx: 14 + Math.random() * 18, vy: 26 + Math.random() * 22, life: 6, max: 6, size: 1.5 + Math.random() * 2, color: "rgba(200,200,210,0.4)", glow: false, grav: 0 });
+        this.parts.push({ x, y: this.camY - 8, vx: 14 + Math.random() * 18, vy: 26 + Math.random() * 22, life: 6, max: 6, size: 1.5 + Math.random() * 2, color: "rgba(200,200,210,0.4)", glow: false, grav: 0 });
       } else {
-        this.parts.push({ x, y: -8, vx: -10 - Math.random() * 16, vy: 34 + Math.random() * 20, life: 5, max: 5, size: 2.5 + Math.random() * 2, color: "rgba(140,220,120,0.5)", glow: false, grav: 8 });
+        this.parts.push({ x, y: this.camY - 8, vx: -10 - Math.random() * 16, vy: 34 + Math.random() * 20, life: 5, max: 5, size: 2.5 + Math.random() * 2, color: "rgba(140,220,120,0.5)", glow: false, grav: 8 });
       }
     }
   }
@@ -720,7 +946,7 @@ export class Engine {
     const spread = [1.7, 1.7, 2.3][idx];
     p.comboCd = idx === 2 ? 0.42 : 0.3;
     p.attackT = 0;
-    const a = Math.atan2(this.mouse.y - (p.y - 8), this.mouse.x - p.x);
+    const a = Math.atan2(this.my - (p.y - 8), this.mx - p.x);
     if (Math.cos(a) !== 0) p.face = Math.cos(a) >= 0 ? 1 : -1;
     this.arcs.push({
       x: p.x, y: p.y - 8, ang: a, spread, r: radius,
@@ -802,7 +1028,7 @@ export class Engine {
     this.frozen = true;
     const idx = this.chapterIdx;
     setTimeout(() => {
-      if (this.destroyed) return;
+      if (this.destroyed || this.dead) return;
       if (idx >= CHAPTERS.length - 1) {
         if (!this.victoryDone) {
           this.victoryDone = true;
@@ -824,15 +1050,24 @@ export class Engine {
     this.combo = 0;
     sfx.hurt();
     this.burst(p.x, p.y - 10, "#ff2e4d", 8, true);
-    if (p.hp <= 0) {
+    if (p.hp < 1) {
       p.hp = 0;
-      this.dead = true;
-      this.burst(p.x, p.y - 10, "#f7ecf2", 30, true);
-      sfx.death();
-      setTimeout(() => {
-        if (!this.destroyed && this.dead) this.handlers.onGameOver();
-      }, 1100);
+      this.playerDie();
     }
+  }
+
+  private playerDie() {
+    if (this.dead) return;
+    const p = this.player;
+    this.dead = true;
+    this.combo = 0;
+    this.burst(p.x, p.y - 10, "#f7ecf2", 34, true);
+    this.burst(p.x, p.y - 10, "#ff2e4d", 16, true);
+    this.flashRed = 0.7;
+    sfx.death();
+    setTimeout(() => {
+      if (!this.destroyed && this.dead) this.handlers.onGameOver();
+    }, 1100);
   }
 
   private gainXp(v: number) {
@@ -1101,8 +1336,8 @@ export class Engine {
       e.vy *= Math.pow(0.0001, dt);
       e.x += (mx + e.vx) * dt;
       e.y += (my + e.vy) * dt;
-      e.x = Math.min(Math.max(e.x, 20), this.W - 20);
-      e.y = Math.min(Math.max(e.y, 100), this.H - 20);
+      e.x = Math.min(Math.max(e.x, 20), this.vW - 20);
+      e.y = Math.min(Math.max(e.y, this.mode === "world" ? 60 : 100), this.vH - 20);
 
       // контактный урон
       if (dist < e.r + p.r + 4 && e.touchCd <= 0 && e.state !== "windup") {
@@ -1111,6 +1346,10 @@ export class Engine {
       }
     }
     this.enemies = this.enemies.filter((e) => e.hp > 0);
+    if (this.mode === "world") {
+      // слишком далеко убежавшие бродячие демоны растворяются
+      this.enemies = this.enemies.filter((e) => Math.hypot(e.x - p.x, e.y - p.y) < 2000);
+    }
   }
 
   private updateBoss(e: Enemy, dt: number, nx: number, ny: number, dist: number) {
@@ -1237,7 +1476,7 @@ export class Engine {
       pr.life -= dt;
       pr.x += pr.vx * dt;
       pr.y += pr.vy * dt;
-      if (pr.x < -60 || pr.x > this.W + 60 || pr.y < -60 || pr.y > this.H + 60) pr.life = 0;
+      if (pr.x < -60 || pr.x > this.vW + 60 || pr.y < -60 || pr.y > this.vH + 60) pr.life = 0;
 
       if (pr.from === "foe") {
         if (Math.hypot(pr.x - p.x, pr.y - (p.y - 6)) < pr.r + p.r) {
@@ -1281,8 +1520,8 @@ export class Engine {
       if (pk.vy > 0) pk.vy *= Math.pow(0.001, dt);
       pk.x += pk.vx * dt;
       pk.y += pk.vy * dt;
-      pk.x = Math.min(Math.max(pk.x, 20), this.W - 20);
-      pk.y = Math.min(Math.max(pk.y, 100), this.H - 24);
+      pk.x = Math.min(Math.max(pk.x, 20), this.vW - 20);
+      pk.y = Math.min(Math.max(pk.y, this.mode === "world" ? 60 : 100), this.vH - 24);
       const d = Math.hypot(pk.x - p.x, pk.y - p.y);
       if (d < 130) {
         const a = Math.atan2(p.y - pk.y, p.x - pk.x);
@@ -1324,32 +1563,56 @@ export class Engine {
 
   private render(now: number) {
     const ctx = this.ctx;
-    const ch = CHAPTERS[this.chapterIdx];
+    const world = this.mode === "world";
+    const ch = CHAPTERS[world ? this.worldIdx : this.chapterIdx];
     ctx.save();
     ctx.clearRect(0, 0, this.W, this.H);
     if (this.shake > 0) {
       ctx.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
     }
 
-    // фон
-    const sky = ctx.createLinearGradient(0, 0, 0, this.H);
-    sky.addColorStop(0, ch.sky[0]);
-    sky.addColorStop(1, ch.sky[1]);
-    ctx.fillStyle = sky;
-    ctx.fillRect(-20, -20, this.W + 40, this.H + 40);
-    const floor = ctx.createLinearGradient(0, this.H * 0.2, 0, this.H);
-    floor.addColorStop(0, ch.floor[0]);
-    floor.addColorStop(1, ch.floor[1]);
-    ctx.fillStyle = floor;
-    ctx.fillRect(-20, this.H * 0.18, this.W + 40, this.H);
+    // фон (экранные координаты)
+    if (world) {
+      const sky = ctx.createLinearGradient(0, 0, 0, this.H);
+      sky.addColorStop(0, ch.sky[0]);
+      sky.addColorStop(0.4, ch.sky[1]);
+      sky.addColorStop(1, ch.floor[1]);
+      ctx.fillStyle = sky;
+      ctx.fillRect(-20, -20, this.W + 40, this.H + 40);
+      const fl = ctx.createLinearGradient(0, 0, 0, this.H);
+      fl.addColorStop(0, ch.floor[0]);
+      fl.addColorStop(1, ch.floor[1]);
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = fl;
+      ctx.fillRect(-20, this.H * 0.22, this.W + 40, this.H);
+      ctx.globalAlpha = 1;
+    } else {
+      const sky = ctx.createLinearGradient(0, 0, 0, this.H);
+      sky.addColorStop(0, ch.sky[0]);
+      sky.addColorStop(1, ch.sky[1]);
+      ctx.fillStyle = sky;
+      ctx.fillRect(-20, -20, this.W + 40, this.H + 40);
+      const floor = ctx.createLinearGradient(0, this.H * 0.2, 0, this.H);
+      floor.addColorStop(0, ch.floor[0]);
+      floor.addColorStop(1, ch.floor[1]);
+      ctx.fillStyle = floor;
+      ctx.fillRect(-20, this.H * 0.18, this.W + 40, this.H);
+    }
 
-    // декорации
-    for (const d of this.deco) this.drawDeco(d, ch.accent, now);
+    // мировые координаты (в бою камера = 0)
+    ctx.save();
+    ctx.translate(-this.camX, -this.camY);
 
-    // светящаяся рамка арены
-    ctx.strokeStyle = `rgba(255,209,102,0.12)`;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(14, 92, this.W - 28, this.H - 112);
+    if (world) {
+      this.drawWorldGround(ch, now);
+    } else {
+      // декорации
+      for (const d of this.deco) this.drawDeco(d, ch.accent, now);
+      // светящаяся рамка арены
+      ctx.strokeStyle = `rgba(255,209,102,0.12)`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(14, 92, this.W - 28, this.H - 112);
+    }
 
     // дроп
     for (const pk of this.picks) this.drawPickup(pk);
@@ -1444,6 +1707,49 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
+    // возврат в экранные координаты
+    ctx.restore();
+
+    // стрелка к вратам в открытом мире
+    if (world && !this.dead) {
+      const portal = this.wObjs.find((o) => o.kind === "portal");
+      if (portal) {
+        const sx = portal.x - this.camX;
+        const sy = portal.y - this.camY - 30;
+        const m = 78;
+        if (sx < m || sx > this.W - m || sy < m + 46 || sy > this.H - m) {
+          const cx = this.W / 2;
+          const cy = this.H / 2;
+          const ang = Math.atan2(sy - cy, sx - cx);
+          const rx = Math.min(Math.max(sx, m), this.W - m);
+          const ry = Math.min(Math.max(sy, m + 46), this.H - m);
+          const pulse = 1 + Math.sin(now * 5) * 0.15;
+          ctx.save();
+          ctx.translate(rx, ry);
+          ctx.rotate(ang);
+          ctx.scale(pulse, pulse);
+          ctx.fillStyle = "#ffd166";
+          ctx.shadowColor = "#ffd166";
+          ctx.shadowBlur = 12;
+          ctx.beginPath();
+          ctx.moveTo(15, 0);
+          ctx.lineTo(-8, -9);
+          ctx.lineTo(-4, 0);
+          ctx.lineTo(-8, 9);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+          const dist = Math.round(Math.hypot(portal.x - this.player.x, portal.y - this.player.y) / 10);
+          ctx.font = '11px "Russo One"';
+          ctx.textAlign = "center";
+          ctx.fillStyle = "rgba(0,0,0,0.65)";
+          ctx.fillText(`ВРАТА · ${dist} м`, rx + 1, ry + 27);
+          ctx.fillStyle = "#ffd166";
+          ctx.fillText(`ВРАТА · ${dist} м`, rx, ry + 26);
+        }
+      }
+    }
+
     // баннер главы/волны
     if (this.banner.t > 0) {
       const bt = this.banner.t;
@@ -1536,6 +1842,176 @@ export class Engine {
       ctx.beginPath();
       ctx.arc(0, -62, 4, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ---------- отрисовка открытого мира ----------
+
+  private drawWorldGround(ch: ChapterDef, now: number) {
+    const ctx = this.ctx;
+    // границы карты
+    ctx.strokeStyle = "rgba(255,209,102,0.28)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(8, 40, this.mapW - 16, this.mapH - 48);
+    ctx.strokeStyle = `${ch.accent}30`;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(22, 54, this.mapW - 44, this.mapH - 76);
+
+    const x0 = this.camX - 90;
+    const x1 = this.camX + this.W + 90;
+    const y0 = this.camY - 90;
+    const y1 = this.camY + this.H + 90;
+    for (const d of this.wDeco) {
+      if (d.x < x0 || d.x > x1 || d.y < y0 || d.y > y1) continue;
+      if (d.k === 3) {
+        this.drawDeco(d, ch.accent, now);
+        continue;
+      }
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.scale(d.s, d.s);
+      ctx.globalAlpha = 0.42;
+      if (d.k === 0) {
+        ctx.strokeStyle =
+          this.worldIdx === 0 ? "rgba(140,220,120,0.85)" : this.worldIdx === 1 ? "rgba(255,159,67,0.55)" : "rgba(255,90,120,0.45)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-4, 4);
+        ctx.lineTo(-5, -5);
+        ctx.moveTo(0, 4);
+        ctx.lineTo(0, -7);
+        ctx.moveTo(4, 4);
+        ctx.lineTo(6, -4);
+        ctx.stroke();
+      } else if (d.k === 1) {
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.beginPath();
+        ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+        ctx.arc(6, 3, 1.1, 0, Math.PI * 2);
+        ctx.arc(-5, 2, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = "rgba(18,12,24,0.75)";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 9, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.12)";
+        ctx.beginPath();
+        ctx.ellipse(-2, -2, 5, 2.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    for (const o of this.wObjs) {
+      if (o.x < x0 || o.x > x1 || o.y < y0 || o.y > y1) continue;
+      this.drawWorldObj(o, now);
+    }
+  }
+
+  private drawWorldObj(o: { kind: string; x: number; y: number; used: boolean }, now: number) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    if (o.kind === "portal") {
+      const pulse = 1 + Math.sin(now * 3) * 0.06;
+      const g = ctx.createRadialGradient(0, -34, 4, 0, -34, 96 * pulse);
+      g.addColorStop(0, "rgba(255,246,216,0.5)");
+      g.addColorStop(1, "rgba(255,209,102,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(-110, -140, 220, 210);
+      ctx.fillStyle = "rgba(28,15,32,0.95)";
+      ctx.fillRect(-46, -80, 12, 88);
+      ctx.fillRect(34, -80, 12, 88);
+      ctx.fillRect(-54, -88, 108, 12);
+      ctx.fillStyle = "#ffd166";
+      ctx.fillRect(-54, -88, 108, 4);
+      ctx.globalCompositeOperation = "lighter";
+      for (let i = 0; i < 3; i++) {
+        ctx.strokeStyle = i === 0 ? "#ffd166" : i === 1 ? "#ff9f43" : "#fff6d8";
+        ctx.lineWidth = 3.5 - i;
+        ctx.beginPath();
+        ctx.ellipse(0, -36, (30 - i * 8) * pulse, (40 - i * 10) * pulse, now * (0.8 + i * 0.3), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = "source-over";
+      ctx.font = '13px "Russo One"';
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillText("ВРАТА", 1, -103);
+      ctx.fillStyle = "#ffd166";
+      ctx.fillText("ВРАТА", 0, -104);
+    } else if (o.kind === "spring") {
+      const g = ctx.createRadialGradient(0, 0, 4, 0, 0, 62);
+      g.addColorStop(0, "rgba(124,255,207,0.65)");
+      g.addColorStop(0.6, "rgba(53,240,208,0.28)");
+      g.addColorStop(1, "rgba(53,240,208,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 62, 31, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(180,255,235,0.85)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 42, 19, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255,255,255,${0.4 + Math.sin(now * 4) * 0.2})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 30 + Math.sin(now * 2.2) * 4, 13, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(40,32,50,0.9)";
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.ellipse(Math.cos(a) * 52, Math.sin(a) * 26, 7, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (o.kind === "shrine") {
+      const used = o.used;
+      const g = ctx.createRadialGradient(0, -44, 2, 0, -44, 64);
+      g.addColorStop(0, used ? "rgba(150,150,170,0.22)" : "rgba(255,209,102,0.5)");
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(-70, -116, 140, 150);
+      ctx.fillStyle = "rgba(35,25,45,0.95)";
+      ctx.fillRect(-10, -34, 20, 40);
+      ctx.fillRect(-16, 2, 32, 8);
+      ctx.save();
+      ctx.translate(0, -54 + Math.sin(now * 2.4) * 4);
+      ctx.rotate(now * 0.9);
+      ctx.fillStyle = used ? "rgba(140,140,160,0.7)" : "#ffd166";
+      if (!used) {
+        ctx.shadowColor = "#ffd166";
+        ctx.shadowBlur = 14;
+      }
+      ctx.beginPath();
+      ctx.moveTo(0, -12);
+      ctx.lineTo(8, 0);
+      ctx.lineTo(0, 12);
+      ctx.lineTo(-8, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    } else {
+      const used = o.used;
+      ctx.fillStyle = used ? "rgba(70,50,40,0.8)" : "#8a5a2e";
+      ctx.fillRect(-16, -14, 32, 20);
+      ctx.fillStyle = used ? "rgba(90,66,50,0.8)" : "#a9713a";
+      if (used) {
+        ctx.save();
+        ctx.translate(-16, -14);
+        ctx.rotate(-0.7);
+        ctx.fillRect(0, -8, 32, 9);
+        ctx.restore();
+      } else {
+        ctx.fillRect(-16, -20, 32, 8);
+      }
+      ctx.fillStyle = used ? "rgba(120,110,90,0.8)" : "#ffd166";
+      ctx.fillRect(-3, -12, 6, 7);
+      if (!used) {
+        ctx.fillStyle = `rgba(255,209,102,${0.25 + Math.sin(now * 5) * 0.15})`;
+        ctx.fillRect(-16, -20, 32, 2);
+      }
     }
     ctx.restore();
   }

@@ -209,21 +209,22 @@ export function GachaModal({
 }) {
   const [results, setResults] = useState<BlessingDef[] | null>(null);
   const [revealed, setRevealed] = useState(0);
+  // держим колбэк в ref: таймер раскрытия не должен зависеть от ре-рендеров родителя
+  const applyRef = useRef(onApply);
+  applyRef.current = onApply;
 
   useEffect(() => {
     if (!results || revealed >= results.length) return;
     const iv = setTimeout(() => {
       const b = results[revealed];
-      const meta = RARITY_META[b.rarity];
       if (b.rarity === "legend") sfx.gachaLegend();
       else if (b.rarity === "epic") sfx.gachaEpic();
       else sfx.gachaRare();
-      void meta;
-      onApply(b);
+      applyRef.current(b);
       setRevealed(revealed + 1);
     }, 320);
     return () => clearTimeout(iv);
-  }, [results, revealed, onApply]);
+  }, [results, revealed]);
 
   const pull = (n: number) => {
     const res = onPull(n);
