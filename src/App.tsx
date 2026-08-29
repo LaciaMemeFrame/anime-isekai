@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Engine, type HudSnapshot, type RunSave, type RunStats } from "./game/engine";
 import { BLESSINGS, GACHA_SINGLE, GACHA_TEN, HEROINES, RARITY_META, type BlessingDef, type UpgradeDef } from "./game/data";
 import { isMuted, setMuted, sfx, startAmbient, unlockAudio } from "./game/audio";
+import { setTrack, setMusicVolume, unlockMusic } from "./game/music";
 import { TitleScreen, IntroCinematic } from "./ui/Intro";
 import { Hud } from "./ui/Hud";
 import { PauseOverlay, LevelUpModal, JoinScene, GachaModal, GameOverOverlay, EndingScreen } from "./ui/Modals";
@@ -75,6 +76,7 @@ export default function App() {
   const toggleMute = useCallback(() => {
     const m = !isMuted();
     setMuted(m);
+    setMusicVolume(m ? 0 : 0.16);
     setMutedState(m);
     if (!m) sfx.ui();
   }, []);
@@ -86,6 +88,13 @@ export default function App() {
       /* noop */
     }
   }, []);
+
+  // Музыка по фазе (кроме игры — там решает движок: мир/бой/босс)
+  useEffect(() => {
+    if (phase === "title") setTrack("title");
+    else if (phase === "intro") setTrack("goddess");
+    else if (phase === "ending") setTrack("ending");
+  }, [phase]);
 
   if (phase === "title") {
     return (
@@ -257,6 +266,7 @@ function GameView({
     if (resumeSave) engine.loadSave(resumeSave);
     else engine.start(gift);
     unlockAudio();
+    unlockMusic();
     startAmbient();
 
     const iv = setInterval(() => setSnap(engine.snapshot()), 100);
@@ -267,6 +277,15 @@ function GameView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Музыка внутри игры: босс → бой → мир
+  const bossAlive = !!snap?.boss;
+  const gameMode = snap?.mode;
+  useEffect(() => {
+    if (bossAlive) setTrack("boss");
+    else if (gameMode === "battle") setTrack("battle");
+    else if (gameMode === "world") setTrack("world");
+  }, [bossAlive, gameMode]);
 
   // ESC — пауза, M — звук
   useEffect(() => {

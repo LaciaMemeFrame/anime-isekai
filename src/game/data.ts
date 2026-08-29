@@ -298,11 +298,11 @@ export const ENEMY_BASE: Record<
   MinionType,
   { hp: number; speed: number; dmg: number; r: number; xp: number; cry: [number, number] }
 > = {
-  imp: { hp: 30, speed: 100, dmg: 9, r: 15, xp: 6, cry: [0, 2] },
-  spitter: { hp: 40, speed: 72, dmg: 8, r: 16, xp: 9, cry: [1, 3] },
-  brute: { hp: 140, speed: 48, dmg: 18, r: 24, xp: 18, cry: [2, 5] },
-  wraith: { hp: 24, speed: 152, dmg: 7, r: 13, xp: 7, cry: [0, 2] },
-  hound: { hp: 42, speed: 205, dmg: 11, r: 14, xp: 11, cry: [1, 3] },
-  cultist: { hp: 60, speed: 92, dmg: 13, r: 15, xp: 15, cry: [3, 6] },
-  knight: { hp: 175, speed: 84, dmg: 21, r: 19, xp: 26, cry: [5, 10] },
+  imp: { hp: 40, speed: 108, dmg: 11, r: 15, xp: 7, cry: [0, 2] },
+  spitter: { hp: 52, speed: 76, dmg: 10, r: 16, xp: 10, cry: [1, 3] },
+  brute: { hp: 185, speed: 52, dmg: 22, r: 24, xp: 20, cry: [2, 5] },
+  wraith: { hp: 32, speed: 165, dmg: 9, r: 13, xp: 8, cry: [0, 2] },
+  hound: { hp: 56, speed: 220, dmg: 13, r: 14, xp: 12, cry: [1, 3] },
+  cultist: { hp: 78, speed: 96, dmg: 15, r: 15, xp: 16, cry: [3, 6] },
+  knight: { hp: 230, speed: 88, dmg: 25, r: 19, xp: 28, cry: [5, 10] },
 };

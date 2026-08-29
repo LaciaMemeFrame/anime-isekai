@@ -186,6 +186,131 @@ body {
 ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.4); }
 ::-webkit-scrollbar-thumb { background: rgba(255, 209, 102, 0.3); border-radius: 4px; }
 
+/* ---------- аниме-дизайн ---------- */
+
+/* фон с медленным «дыханием» (Ken Burns) */
+.anime-bg {
+  position: absolute;
+  inset: -4%;
+  background-size: cover;
+  background-position: center;
+  animation: kenburns 26s ease-in-out infinite alternate;
+}
+@keyframes kenburns {
+  0% { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.12) translate(-1.5%, -2%); }
+}
+
+/* диагональные неоновые полосы */
+.stripe-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    -55deg,
+    rgba(255, 46, 77, 0) 0px,
+    rgba(255, 46, 77, 0) 90px,
+    rgba(255, 46, 77, 0.05) 90px,
+    rgba(255, 46, 77, 0.05) 92px
+  );
+}
+
+/* спидлайны (манга-лучи) */
+.speed-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    from 0deg at 50% 45%,
+    rgba(255, 255, 255, 0.035) 0deg 1.2deg,
+    rgba(255, 255, 255, 0) 1.2deg 9deg
+  );
+  mask-image: radial-gradient(circle at 50% 45%, transparent 30%, black 75%);
+  -webkit-mask-image: radial-gradient(circle at 50% 45%, transparent 30%, black 75%);
+  animation: spinSlow 60s linear infinite;
+}
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* большой полупрозрачный кандзи-водяной знак */
+.kanji-mark {
+  position: absolute;
+  font-family: "Russo One", sans-serif;
+  color: rgba(255, 209, 102, 0.05);
+  line-height: 0.9;
+  user-select: none;
+  pointer-events: none;
+  writing-mode: vertical-rl;
+}
+
+/* косая неоновая кнопка */
+.skew-btn {
+  position: relative;
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  background: linear-gradient(180deg, rgba(255, 46, 77, 0.95), rgba(179, 18, 46, 0.95));
+  color: #fff;
+  font-family: "Russo One", sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 0 0 rgba(255, 46, 77, 0);
+}
+.skew-btn:hover {
+  transform: translateY(-2px) skewX(-2deg);
+  filter: brightness(1.18);
+  box-shadow: 0 6px 28px rgba(255, 46, 77, 0.5);
+}
+.skew-btn:active { transform: translateY(1px) skewX(-2deg); }
+.skew-btn.gold {
+  background: linear-gradient(180deg, rgba(255, 209, 102, 0.95), rgba(224, 168, 60, 0.95));
+  color: #3a2405;
+}
+.skew-btn.gold:hover { box-shadow: 0 6px 28px rgba(255, 209, 102, 0.55); }
+.skew-btn.ghost {
+  background: rgba(20, 10, 28, 0.72);
+  border: 1px solid rgba(255, 209, 102, 0.4);
+  color: #ffd166;
+}
+
+/* аниме-панель со срезанными углами и неоновой кромкой */
+.anime-panel {
+  position: relative;
+  background: linear-gradient(160deg, rgba(26, 12, 34, 0.9), rgba(10, 5, 16, 0.94));
+  border: 1px solid rgba(255, 209, 102, 0.22);
+  clip-path: polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px);
+}
+.anime-panel::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(255, 46, 77, 0.9) 30%, rgba(255, 209, 102, 0.9) 70%, transparent);
+}
+
+/* заголовок с многослойной тенью и косым подчёркиванием */
+.anime-title {
+  text-shadow:
+    0 0 18px rgba(255, 46, 77, 0.55),
+    0 0 46px rgba(255, 159, 67, 0.3),
+    3px 3px 0 rgba(60, 5, 20, 0.9);
+}
+
+/* плавающий персонаж */
+.float-slow { animation: floatSlow 5s ease-in-out infinite; }
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+
+/* пульсирующее свечение */
+.glow-pulse { animation: glowPulse 2.4s ease-in-out infinite; }
+@keyframes glowPulse {
+  0%, 100% { filter: drop-shadow(0 0 12px rgba(255, 209, 102, 0.4)); }
+  50% { filter: drop-shadow(0 0 30px rgba(255, 209, 102, 0.85)); }
+}
+
 /* souls: медленное проявление «ТЫ УМЕР» */
 .souls-death {
   animation: soulsDeath 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
