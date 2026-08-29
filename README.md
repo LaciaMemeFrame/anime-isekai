@@ -25,7 +25,10 @@ npm install
 npm run dev
 ```
 
-## Хостинг на GitHub Pages
+## Хостинг на GitHub Pages (автоматически)
+
+В проекте уже есть workflow `.github/workflows/deploy.yml` — он собирает игру
+и публикует её на Pages после каждого push в `main`.
 
 1. Создай репозиторий на https://github.com/new и запушь проект:
 
@@ -38,17 +41,14 @@ git remote add origin https://github.com/<твой-ник>/<репозитори
 git push -u origin main
 ```
 
-2. Собери проект и опубликуй `dist/`:
+2. Включи публикацию: **Settings → Pages → Source: GitHub Actions**.
 
-```bash
-npm run build
-npx gh-pages -d dist
-```
+3. Открой вкладку **Actions** — workflow «Deploy to GitHub Pages» прогонится сам
+   (или запусти его кнопкой **Run workflow**). Через пару минут игра будет доступна на
+   `https://<твой-ник>.github.io/<репозиторий>/`.
 
-3. В настройках репозитория: **Settings → Pages → Source: gh-pages**.
-   Игра откроется по адресу `https://<твой-ник>.github.io/<репозиторий>/`.
-
-> Совет: если ассеты не грузятся, добавь в `vite.config.ts` поле `base: "/<репозиторий>/"`.
+> Пути к ассетам относительные (`--base=./`), поэтому править `vite.config.ts` не нужно —
+> работает и на pages-поддомене, и на кастомном домене.
 
 ## Стек
 

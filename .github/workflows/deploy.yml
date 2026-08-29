@@ -1,0 +1,63 @@
+# Деплой игры «Перерождение Героя: Клинок Богини» на GitHub Pages.
+#
+# Один раз в репозитории: Settings → Pages → Source: GitHub Actions.
+# После каждого push в main/master игра автоматически собирается и публикуется
+# по адресу https://<ник>.github.io/<репозиторий>/
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  # позволяет запустить деплой вручную из вкладки Actions
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # --base=./ делает пути к ассетам относительными —
+      # работает и на https://<ник>.github.io/<репозиторий>/,
+      # и на кастомном домене без правки vite.config.js
+      - name: Build
+        run: npm run build -- --base=./
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
