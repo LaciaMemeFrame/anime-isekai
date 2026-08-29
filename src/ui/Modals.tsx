@@ -5,7 +5,7 @@ import { drawPortrait, drawChibi } from "../game/sprites";
 import { BLESSINGS, RARITY_META, GACHA_SINGLE, GACHA_TEN, HEROINES, type BlessingDef, type HeroineDef, type UpgradeDef } from "../game/data";
 import type { RunStats } from "../game/engine";
 import { sfx } from "../game/audio";
-import { UPGRADE_ICONS, IconGem, IconHeart, IconBlade } from "./Intro";
+import { UPGRADE_ICONS, IconGem, IconHeart, IconBlade, IconTelegram } from "./Intro";
 
 // ---------- холст-портрет ----------
 
@@ -57,12 +57,15 @@ export function PauseOverlay({
         </div>
         <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-[#cbb8d8]">
           <div><b className="font-display text-[#ffd166]">WASD</b> — движение</div>
-          <div><b className="font-display text-[#ffd166]">ЛКМ / J</b> — атака</div>
+          <div><b className="font-display text-[#ffd166]">ЛКМ / J</b> — атака (стамина)</div>
           <div><b className="font-display text-[#ffd166]">SPACE</b> — рывок</div>
-          <div><b className="font-display text-[#ffd166]">Q / K</b> — волна</div>
-          <div><b className="font-display text-[#ffd166]">E / L</b> — ярость</div>
-          <div><b className="font-display text-[#ffd166]">ESC</b> — продолжить</div>
+          <div><b className="font-display text-[#ffd166]">Q / K</b> — навык класса</div>
+          <div><b className="font-display text-[#ffd166]">E / L</b> — ярость · <b className="font-display text-[#ffd166]">F</b> — фляга</div>
+          <div><b className="font-display text-[#ffd166]">TAB / ПКМ</b> — захват цели</div>
         </div>
+        <a href="https://t.me/pixsetup" target="_blank" rel="noreferrer" className="tg-link clip-btn mt-5 flex items-center gap-2 px-4 py-2 text-xs">
+          <IconTelegram size={13} /> @pixsetup — канал разработчика
+        </a>
         <div className="mt-7 flex flex-col gap-3">
           <button onClick={onResume} className="btn-blade clip-btn px-6 py-3">ПРОДОЛЖИТЬ БОЙ</button>
           <div className="flex gap-3">
@@ -333,44 +336,52 @@ export function GachaModal({
 export function GameOverOverlay({
   stats,
   crystals,
+  lostRunes,
   onRevive,
   onRestart,
   onMenu,
 }: {
   stats: RunStats;
   crystals: number;
+  lostRunes: number;
   onRevive: () => void;
   onRestart: () => void;
   onMenu: () => void;
 }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setReady(true), 1500);
+    return () => clearTimeout(t);
+  }, []);
   return (
-    <Backdrop>
-      <div className="panel-dark clip-panel anim-pop w-full max-w-lg border-[#ff2e4d]/50 px-9 py-8 text-center">
-        <div className="font-display text-5xl text-[#ff2e4d]" style={{ textShadow: "0 0 30px rgba(255,46,77,0.7)" }}>
-          ТЫ ПАЛ...
-        </div>
-        <p className="mt-3 text-sm text-[#cbb8d8]">
-          «Это ещё не конец, Герой. Я услышу твою клятву — и верну.» — Астрея
-        </p>
-        <div className="mt-4 text-xs text-[#a98fb8]">
+    <div className="pointer-events-auto absolute inset-0 z-40 flex flex-col items-center justify-center bg-black px-4">
+      <div className="souls-death font-display text-center text-6xl tracking-[0.24em] text-[#d8d0c0] md:text-8xl" style={{ textShadow: "0 0 40px rgba(255,46,77,0.35)" }}>
+        ТЫ УМЕР
+      </div>
+      <div className="mt-4 text-center text-sm text-[#8f867a]">
+        {lostRunes > 0
+          ? `${lostRunes} рун осталось на месте гибели — воскресни и вернись за ними`
+          : "Тьма сомкнулась... но клятва сильнее смерти"}
+      </div>
+      <div
+        className={`mt-10 flex flex-col items-center gap-3 transition-opacity duration-700 ${ready ? "opacity-100" : "pointer-events-none opacity-0"}`}
+      >
+        <div className="mb-1 text-xs text-[#a98fb8]">
           Уровень {stats.level} · Убийств {stats.kills} · Время {Math.floor(stats.time / 60)}:{String(Math.floor(stats.time % 60)).padStart(2, "0")}
         </div>
-        <div className="mt-7 flex flex-col gap-3">
-          <button
-            onClick={onRevive}
-            disabled={crystals < 40}
-            className="btn-blade clip-btn flex items-center justify-center gap-2 px-6 py-3 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            ВОЗРОДИТЬСЯ — 40 <IconGem size={14} color="#fff" />
-            {crystals < 40 && <span className="text-xs opacity-70">(не хватает)</span>}
-          </button>
-          <div className="flex gap-3">
-            <button onClick={onRestart} className="btn-ghost clip-btn flex-1 px-4 py-2.5 text-sm">НАЧАТЬ ЗАНОВО</button>
-            <button onClick={onMenu} className="btn-ghost clip-btn flex-1 px-4 py-2.5 text-sm">В МЕНЮ</button>
-          </div>
+        <button
+          onClick={onRevive}
+          disabled={crystals < 40}
+          className="btn-blade clip-btn flex items-center justify-center gap-2 px-10 py-3.5 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          ВОЗРОДИТЬСЯ У МЕСТА ГИБЕЛИ — 40 <IconGem size={14} color="#fff" />
+        </button>
+        <div className="flex gap-3">
+          <button onClick={onRestart} className="btn-ghost clip-btn px-6 py-2.5 text-sm">НАЧАТЬ ЗАНОВО</button>
+          <button onClick={onMenu} className="btn-ghost clip-btn px-6 py-2.5 text-sm">В МЕНЮ</button>
         </div>
       </div>
-    </Backdrop>
+    </div>
   );
 }
 

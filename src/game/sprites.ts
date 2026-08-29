@@ -266,6 +266,11 @@ const DEMON_COLORS: Record<string, { body: [string, string]; eye: string; horn: 
   fire: { body: ["#ff9f43", "#8f2410"], eye: "#ffe14d", horn: "#4a0d05" },
   ice: { body: ["#9fd8ff", "#1d4a8f"], eye: "#e8f7ff", horn: "#0e2a55" },
   demon: { body: ["#ff2e4d", "#38060f"], eye: "#ffd166", horn: "#1c030a" },
+  hound: { body: ["#8f8f9e", "#2c2434"], eye: "#ff5a3c", horn: "#1a1420" },
+  cultist: { body: ["#6a4fa0", "#241540"], eye: "#c46bff", horn: "#120a24" },
+  knight: { body: ["#5a6478", "#1c202c"], eye: "#ff2e4d", horn: "#10131c" },
+  bone: { body: ["#e8e0d0", "#4a3f55"], eye: "#c9a0ff", horn: "#2c2438" },
+  frost: { body: ["#cfeaff", "#2a5a8f"], eye: "#9fd8ff", horn: "#123050" },
 };
 
 export function drawDemon(
@@ -363,6 +368,100 @@ export function drawDemon(
     ctx.restore();
   }
 
+  // гончая: морда, уши, клыки
+  if (o.type === "hound") {
+    ctx.fillStyle = c.body[1];
+    ctx.beginPath();
+    ctx.moveTo(4 * s, -14 * s + hop);
+    ctx.lineTo(10 * s, -21 * s + hop);
+    ctx.lineTo(11 * s, -12 * s + hop);
+    ctx.closePath();
+    ctx.moveTo(-4 * s, -14 * s + hop);
+    ctx.lineTo(-10 * s, -21 * s + hop);
+    ctx.lineTo(-11 * s, -12 * s + hop);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#1a0508";
+    ctx.beginPath();
+    ctx.ellipse(6 * s, -2 * s + hop, 6 * s, 3.6 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f7ecf2";
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(6 * s + dir * 3 * s, -1 * s + hop);
+      ctx.lineTo(6 * s + dir * 3 * s + 1.2 * s, 2.4 * s + hop);
+      ctx.lineTo(6 * s + dir * 3 * s + 2.4 * s, -1 * s + hop);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // культист: капюшон и посох с черепом
+  if (o.type === "cultist") {
+    ctx.fillStyle = c.body[1];
+    ctx.beginPath();
+    ctx.moveTo(-11 * s, -8 * s + hop);
+    ctx.quadraticCurveTo(0, -26 * s + hop, 11 * s, -8 * s + hop);
+    ctx.lineTo(7 * s, -10 * s + hop);
+    ctx.quadraticCurveTo(0, -20 * s + hop, -7 * s, -10 * s + hop);
+    ctx.closePath();
+    ctx.fill();
+    ctx.save();
+    ctx.translate(-13 * s, -2 * s + hop);
+    ctx.rotate(-0.15 + Math.sin(t * 3.4) * 0.08);
+    ctx.strokeStyle = "#3d2f24";
+    ctx.lineWidth = 2.4 * s;
+    ctx.beginPath();
+    ctx.moveTo(0, 12 * s);
+    ctx.lineTo(0, -14 * s);
+    ctx.stroke();
+    ctx.fillStyle = "#e8e0d0";
+    ctx.beginPath();
+    ctx.arc(0, -17 * s, 4 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#c46bff";
+    ctx.beginPath();
+    ctx.arc(-1.4 * s, -17.5 * s, 1 * s, 0, Math.PI * 2);
+    ctx.arc(1.4 * s, -17.5 * s, 1 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // демон-рыцарь: шлем с рогами и щит
+  if (o.type === "knight") {
+    ctx.fillStyle = "#2c3242";
+    ctx.beginPath();
+    ctx.moveTo(-9 * s, -10 * s + hop);
+    ctx.quadraticCurveTo(0, -22 * s + hop, 9 * s, -10 * s + hop);
+    ctx.lineTo(9 * s, -4 * s + hop);
+    ctx.lineTo(-9 * s, -4 * s + hop);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#ff2e4d";
+    ctx.fillRect(-6 * s, -9 * s + hop, 12 * s, 1.8 * s);
+    // щит спереди
+    ctx.save();
+    ctx.translate(12 * s, -4 * s + hop);
+    ctx.fillStyle = "#3d4356";
+    ctx.beginPath();
+    ctx.moveTo(-4 * s, -10 * s);
+    ctx.lineTo(4 * s, -10 * s);
+    ctx.lineTo(5 * s, 4 * s);
+    ctx.lineTo(0, 9 * s);
+    ctx.lineTo(-5 * s, 4 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#ff2e4d";
+    ctx.lineWidth = 1.4 * s;
+    ctx.beginPath();
+    ctx.moveTo(0, -7 * s);
+    ctx.lineTo(0, 5 * s);
+    ctx.moveTo(-3 * s, -3 * s);
+    ctx.lineTo(3 * s, -3 * s);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // пасть плевателя
   if (o.type === "spitter") {
     ctx.fillStyle = "#0d1f0c";
@@ -415,6 +514,44 @@ export function drawDemon(
       ctx.lineTo(bx + 3.2 * s, -20 * s + hop);
     }
     ctx.closePath();
+    ctx.fill();
+  }
+
+  // первосвященник костей: нимб из рёбер и посох
+  if (o.boss && o.type === "bone") {
+    ctx.strokeStyle = "rgba(201,160,255,0.85)";
+    ctx.lineWidth = 1.6 * s;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + t * 0.8;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * 13 * s, -18 * s + hop + Math.sin(a) * 5 * s, 2.6 * s, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "#c9a0ff";
+    ctx.lineWidth = 1.2 * s;
+    ctx.beginPath();
+    ctx.ellipse(0, -18 * s + hop, 16 * s, 6 * s, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // королева стужи: ледяная корона и морозная дымка
+  if (o.boss && o.type === "frost") {
+    ctx.fillStyle = "#cfeaff";
+    for (let i = 0; i < 5; i++) {
+      const bx = (-8 + i * 4) * s;
+      ctx.beginPath();
+      ctx.moveTo(bx, -20 * s + hop);
+      ctx.lineTo(bx + 1.6 * s, -28 * s + hop);
+      ctx.lineTo(bx + 3.2 * s, -20 * s + hop);
+      ctx.closePath();
+      ctx.fill();
+    }
+    const fg = ctx.createRadialGradient(0, -4 * s, 4, 0, -4 * s, 24 * s);
+    fg.addColorStop(0, "rgba(159,216,255,0)");
+    fg.addColorStop(1, `rgba(159,216,255,${0.22 + Math.sin(t * 3) * 0.08})`);
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.arc(0, -4 * s, 24 * s, 0, Math.PI * 2);
     ctx.fill();
   }
 

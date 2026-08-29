@@ -185,3 +185,30 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.4); }
 ::-webkit-scrollbar-thumb { background: rgba(255, 209, 102, 0.3); border-radius: 4px; }
+
+/* souls: медленное проявление «ТЫ УМЕР» */
+.souls-death {
+  animation: soulsDeath 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes soulsDeath {
+  0% { opacity: 0; letter-spacing: 0.6em; filter: blur(6px); }
+  60% { opacity: 0.4; filter: blur(2px); }
+  100% { opacity: 1; letter-spacing: 0.24em; filter: blur(0); }
+}
+
+/* ссылка на telegram */
+.tg-link {
+  background: linear-gradient(180deg, rgba(46, 107, 171, 0.28), rgba(46, 107, 171, 0.12));
+  border: 1px solid rgba(94, 166, 224, 0.5);
+  color: #9ecdf2;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+.tg-link:hover {
+  background: linear-gradient(180deg, rgba(46, 107, 171, 0.5), rgba(46, 107, 171, 0.25));
+  box-shadow: 0 0 18px rgba(94, 166, 224, 0.4);
+  transform: translateY(-1px);
+  color: #d8ecfb;
+}
