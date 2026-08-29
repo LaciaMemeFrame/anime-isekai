@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { drawChibi, drawGoddess } from "../game/sprites";
-import { GODDESS_GIFTS } from "../game/data";
+import { CLASSES } from "../game/data";
 import { sfx, unlockAudio, isMuted, setMuted } from "../game/audio";
 
 // ---------- общие SVG-иконки ----------
@@ -98,6 +98,33 @@ export function IconThorn({ size = 18, color = "currentColor" }: { size?: number
   );
 }
 
+export function IconFlask({ size = 18, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M10 2 H14 V8 L19 18 A2.4 2.4 0 0 1 16.8 21.5 H7.2 A2.4 2.4 0 0 1 5 18 L10 8 Z" fill={color} opacity="0.35" />
+      <path d="M10 2 H14 V8 L19 18 A2.4 2.4 0 0 1 16.8 21.5 H7.2 A2.4 2.4 0 0 1 5 18 L10 8 Z" stroke={color} strokeWidth="1.8" />
+      <path d="M8.2 14 H15.8 L17.6 17.6 A1.4 1.4 0 0 1 16.4 19.6 H7.6 A1.4 1.4 0 0 1 6.4 17.6 Z" fill={color} />
+    </svg>
+  );
+}
+
+export function IconStam({ size = 18, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <path d="M12 2 C16 6 19 9.5 19 13.5 A7 7 0 0 1 5 13.5 C5 9.5 8 6 12 2 Z" />
+      <path d="M12 7 C14 9.4 15.8 11.4 15.8 13.6 A3.8 3.8 0 0 1 8.2 13.6 C8.2 11.4 10 9.4 12 7 Z" fill="#0b0512" opacity="0.55" />
+    </svg>
+  );
+}
+
+export function IconTelegram({ size = 18, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <path d="M21.9 4.6 L18.9 19.2 C18.7 20.2 18.1 20.5 17.2 20 L12.5 16.5 L10.2 18.7 C10 18.9 9.8 19.1 9.3 19.1 L9.7 13.9 L19 5.5 C19.4 5.1 18.9 4.9 18.4 5.3 L6.9 12.5 L2 11 C0.9 10.7 0.9 9.9 2.2 9.4 L20.4 4.4 C21.2 4.1 21.9 4.6 21.9 4.6 Z" />
+    </svg>
+  );
+}
+
 export const UPGRADE_ICONS: Record<string, (p: { size?: number; color?: string }) => React.ReactElement> = {
   blade: IconBlade,
   heart: IconHeart,
@@ -109,16 +136,26 @@ export const UPGRADE_ICONS: Record<string, (p: { size?: number; color?: string }
   fury: IconFury,
   gem: IconGem,
   thorn: IconThorn,
+  flask: IconFlask,
+  stam: IconStam,
 };
 
 // ---------- титульный экран ----------
 
 export function TitleScreen({
   onStart,
+  onContinue,
   best,
+  hasSave,
+  totalKills,
+  totalSummons,
 }: {
   onStart: () => void;
+  onContinue?: () => void;
   best: { level: number; kills: number } | null;
+  hasSave: boolean;
+  totalKills: number;
+  totalSummons: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [muted, setM] = useState(isMuted());
@@ -265,17 +302,30 @@ export function TitleScreen({
         </div>
 
         <div className="anim-rise mt-10 flex flex-col items-center gap-4" style={{ animationDelay: "0.15s" }}>
+          {hasSave && (
+            <button
+              className="btn-blade clip-btn px-14 py-4 text-2xl anim-pulse-gold"
+              onClick={() => {
+                unlockAudio();
+                sfx.ui();
+                onContinue?.();
+              }}
+            >
+              ПРОДОЛЖИТЬ ПУТЬ
+            </button>
+          )}
           <button
-            className="btn-blade clip-btn px-14 py-4 text-2xl anim-pulse-gold"
+            className={`${hasSave ? "btn-ghost clip-btn px-10 py-3 text-lg" : "btn-blade clip-btn px-14 py-4 text-2xl anim-pulse-gold"}`}
             onClick={() => {
               unlockAudio();
               sfx.ui();
               onStart();
             }}
           >
-            НАЧАТЬ ПУТЬ
+            {hasSave ? "НОВАЯ ИГРА" : "НАЧАТЬ ПУТЬ"}
           </button>
           <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-semibold text-[#a98fb8]">
+            <span className="hud-chip clip-btn px-3 py-1.5 text-[#ff2e4d]">SOULS-LIKE</span>
             <span className="hud-chip clip-btn px-3 py-1.5 text-[#ff9f43]">2D СЛЭШЕР</span>
             <span className="hud-chip clip-btn px-3 py-1.5 text-[#35f0d0]">RPG-ПРОКАЧКА</span>
             <span className="hud-chip clip-btn px-3 py-1.5 text-[#7cc7ff]">ГАЧА-ПРИЗЫВ</span>
@@ -290,20 +340,37 @@ export function TitleScreen({
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">WASD</b> движение</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">ЛКМ / J</b> атака (комбо)</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">SPACE</b> рывок</div>
-          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">Q</b> лунная волна</div>
+          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">Q</b> навык класса</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">E</b> ярость героя</div>
+          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">F</b> фляга Эстуса</div>
+          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">TAB / ПКМ</b> захват цели</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">ESC</b> пауза</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">M</b> звук</div>
           <div className="flex items-center gap-2 text-[#a98fb8]">целься мышью</div>
         </div>
 
-        <div className="mt-6 flex items-center gap-4 text-xs text-[#a98fb8]">
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-xs text-[#a98fb8]">
           {best && (
             <span>
               Лучший забег: <b className="text-[#ffd166]">ур. {best.level}</b> ·{" "}
               <b className="text-[#ff2e4d]">{best.kills}</b> убийств
             </span>
           )}
+          {totalKills > 0 && (
+            <span>
+              Всего истреблено: <b className="text-[#ff9f43]">{totalKills}</b> · призывов:{" "}
+              <b className="text-[#7cc7ff]">{totalSummons}</b>
+            </span>
+          )}
+          <a
+            href="https://t.me/pixsetup"
+            target="_blank"
+            rel="noreferrer"
+            className="tg-link clip-btn flex items-center gap-2 px-4 py-2"
+            onClick={() => sfx.ui()}
+          >
+            <IconTelegram size={14} /> КАНАЛ РАЗРАБОТЧИКА
+          </a>
           <button
             className="btn-ghost clip-btn flex items-center gap-2 px-4 py-2"
             onClick={() => {
@@ -647,14 +714,14 @@ export function IntroCinematic({ onDone }: { onDone: (gift: string) => void }) {
       {choosing && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/40 px-4">
           <div className="anim-pop text-center">
-            <div className="font-display text-2xl text-[#ffd166] md:text-3xl">ДАР БОГИНИ</div>
+            <div className="font-display text-2xl text-[#ffd166] md:text-3xl">ВЫБЕРИ СВОЙ ПУТЬ</div>
             <p className="mt-2 max-w-xl text-sm text-[#cbb8d8]">
-              С чем ты вступишь в Элирию? Выбор определит начало пути Героя.
+              С чем ты вступишь в Элирию? Класс определит твою магию и стиль боя.
             </p>
           </div>
           <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-3">
-            {GODDESS_GIFTS.map((g, i) => {
-              const Ic = g.icon === "blade" ? IconBlade : g.icon === "heart" ? IconHeart : IconStar;
+            {CLASSES.map((g, i) => {
+              const Ic = g.icon === "blade" ? IconBlade : g.icon === "star" ? IconStar : IconWing;
               const active = hoverGift === g.id;
               return (
                 <button
@@ -665,14 +732,18 @@ export function IntroCinematic({ onDone }: { onDone: (gift: string) => void }) {
                     sfx.gachaLegend();
                     onDone(g.id);
                   }}
-                  className={`panel-dark clip-panel anim-rise w-64 cursor-pointer px-6 py-7 text-left transition-all duration-150 ${active ? "-translate-y-2 border-[#ffd166] shadow-[0_0_36px_rgba(255,209,102,0.35)]" : ""}`}
-                  style={{ animationDelay: `${i * 0.1}s` }}
+                  className={`panel-dark clip-panel anim-rise w-72 cursor-pointer px-6 py-7 text-left transition-all duration-150 ${active ? "-translate-y-2 shadow-[0_0_36px_rgba(255,209,102,0.3)]" : ""}`}
+                  style={{ animationDelay: `${i * 0.1}s`, borderColor: active ? g.color : undefined }}
                 >
-                  <div className={`mb-4 ${active ? "text-[#ffd166]" : "text-[#ff9f43]"}`}>
+                  <div className="mb-3" style={{ color: active ? g.color : "#ff9f43" }}>
                     <Ic size={40} />
                   </div>
+                  <div className="font-display text-[10px] tracking-[0.3em]" style={{ color: g.color }}>{g.title.toUpperCase()}</div>
                   <div className="font-display text-lg text-[#f7ecf2]">{g.name}</div>
                   <div className="mt-1.5 text-sm text-[#a98fb8]">{g.desc}</div>
+                  <div className="mt-3 border-t border-white/10 pt-2 text-xs font-semibold" style={{ color: g.color }}>
+                    {g.skill}
+                  </div>
                 </button>
               );
             })}

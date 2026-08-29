@@ -1,17 +1,17 @@
-// Игровой контент: главы, героини, апгрейды, гача.
+// Игровой контент: главы, героини, классы, апгрейды, гача.
 
-export type EnemyType = "imp" | "spitter" | "brute" | "wraith" | "boss";
+export type EnemyType = "imp" | "spitter" | "brute" | "wraith" | "hound" | "cultist" | "knight" | "boss";
 export type MinionType = Exclude<EnemyType, "boss">;
 
 export interface ChapterDef {
   name: string;
   sub: string;
   waves: { list: { type: MinionType; n: number }[] }[];
-  boss: { name: string; title: string; hp: number; kind: "fire" | "ice" | "demon" };
+  boss: { name: string; title: string; hp: number; kind: "fire" | "ice" | "demon" | "bone" | "frost" };
   floor: [string, string];
   sky: [string, string];
   accent: string;
-  ambient: "leaf" | "ash" | "ember";
+  ambient: "leaf" | "ash" | "ember" | "snow";
 }
 
 export const CHAPTERS: ChapterDef[] = [
@@ -21,11 +21,12 @@ export const CHAPTERS: ChapterDef[] = [
     waves: [
       { list: [{ type: "imp", n: 5 }] },
       { list: [{ type: "imp", n: 6 }, { type: "wraith", n: 2 }] },
-      { list: [{ type: "wraith", n: 5 }, { type: "imp", n: 4 }] },
-      { list: [{ type: "imp", n: 8 }, { type: "spitter", n: 2 }] },
-      { list: [{ type: "wraith", n: 6 }, { type: "spitter", n: 3 }, { type: "imp", n: 4 }] },
+      { list: [{ type: "hound", n: 3 }, { type: "imp", n: 5 }] },
+      { list: [{ type: "wraith", n: 5 }, { type: "imp", n: 5 }] },
+      { list: [{ type: "imp", n: 8 }, { type: "spitter", n: 2 }, { type: "hound", n: 3 }] },
+      { list: [{ type: "wraith", n: 6 }, { type: "spitter", n: 3 }, { type: "imp", n: 5 }] },
     ],
-    boss: { name: "АЗАР", title: "Генерал Пламени", hp: 750, kind: "fire" },
+    boss: { name: "АЗАР", title: "Генерал Пламени", hp: 950, kind: "fire" },
     floor: ["#12230f", "#1c3a17"],
     sky: ["#07130a", "#123018"],
     accent: "#7dff6a",
@@ -36,31 +37,68 @@ export const CHAPTERS: ChapterDef[] = [
     sub: "Глава II · Руины надежды",
     waves: [
       { list: [{ type: "imp", n: 6 }, { type: "spitter", n: 2 }] },
-      { list: [{ type: "brute", n: 2 }, { type: "imp", n: 6 }] },
+      { list: [{ type: "hound", n: 5 }, { type: "imp", n: 5 }] },
+      { list: [{ type: "brute", n: 2 }, { type: "imp", n: 6 }, { type: "cultist", n: 2 }] },
       { list: [{ type: "wraith", n: 6 }, { type: "spitter", n: 4 }] },
-      { list: [{ type: "brute", n: 3 }, { type: "wraith", n: 5 }] },
-      { list: [{ type: "imp", n: 8 }, { type: "brute", n: 3 }, { type: "spitter", n: 3 }] },
-      { list: [{ type: "wraith", n: 8 }, { type: "brute", n: 3 }, { type: "spitter", n: 3 }] },
+      { list: [{ type: "knight", n: 2 }, { type: "hound", n: 5 }, { type: "cultist", n: 3 }] },
+      { list: [{ type: "brute", n: 3 }, { type: "wraith", n: 5 }, { type: "cultist", n: 3 }] },
+      { list: [{ type: "imp", n: 8 }, { type: "brute", n: 3 }, { type: "spitter", n: 3 }, { type: "knight", n: 2 }] },
     ],
-    boss: { name: "ВЕЛЬМИРА", title: "Ледяная Королева", hp: 1400, kind: "ice" },
+    boss: { name: "ВЕЛЬМИРА", title: "Ледяная Королева", hp: 1700, kind: "ice" },
     floor: ["#191521", "#262031"],
     sky: ["#0c0913", "#241a33"],
     accent: "#7cc7ff",
     ambient: "ash",
   },
   {
+    name: "КОСТЯНОЙ СОБОР",
+    sub: "Глава III · Молитвы мёртвых",
+    waves: [
+      { list: [{ type: "cultist", n: 4 }, { type: "wraith", n: 5 }] },
+      { list: [{ type: "knight", n: 3 }, { type: "imp", n: 7 }] },
+      { list: [{ type: "hound", n: 7 }, { type: "cultist", n: 4 }] },
+      { list: [{ type: "brute", n: 3 }, { type: "knight", n: 3 }, { type: "wraith", n: 5 }] },
+      { list: [{ type: "cultist", n: 6 }, { type: "hound", n: 6 }, { type: "spitter", n: 4 }] },
+      { list: [{ type: "knight", n: 4 }, { type: "brute", n: 3 }, { type: "wraith", n: 7 }] },
+    ],
+    boss: { name: "КАЭЛ", title: "Первосвященник Костей", hp: 2300, kind: "bone" },
+    floor: ["#241229", "#120812"],
+    sky: ["#170d20", "#33193f"],
+    accent: "#c9a0ff",
+    ambient: "ash",
+  },
+  {
+    name: "СТУЖНАЯ ПУСТОШЬ",
+    sub: "Глава IV · Вечная мерзлота",
+    waves: [
+      { list: [{ type: "wraith", n: 8 }, { type: "hound", n: 5 }] },
+      { list: [{ type: "cultist", n: 5 }, { type: "knight", n: 4 }] },
+      { list: [{ type: "brute", n: 4 }, { type: "hound", n: 7 }] },
+      { list: [{ type: "knight", n: 5 }, { type: "cultist", n: 5 }, { type: "wraith", n: 6 }] },
+      { list: [{ type: "hound", n: 10 }, { type: "spitter", n: 6 }, { type: "cultist", n: 4 }] },
+      { list: [{ type: "brute", n: 5 }, { type: "knight", n: 5 }, { type: "wraith", n: 8 }] },
+      { list: [{ type: "cultist", n: 8 }, { type: "hound", n: 8 }, { type: "knight", n: 4 }] },
+    ],
+    boss: { name: "НЕЭРА", title: "Королева Стужи", hp: 3000, kind: "frost" },
+    floor: ["#1c3a52", "#0d1e30"],
+    sky: ["#071320", "#14304a"],
+    accent: "#9fd8ff",
+    ambient: "snow",
+  },
+  {
     name: "ЦИТАДЕЛЬ ВЛАДЫКИ",
-    sub: "Глава III · Трон из костей",
+    sub: "Глава V · Трон из костей",
     waves: [
       { list: [{ type: "brute", n: 3 }, { type: "imp", n: 6 }] },
       { list: [{ type: "wraith", n: 8 }, { type: "spitter", n: 4 }] },
-      { list: [{ type: "brute", n: 4 }, { type: "wraith", n: 6 }] },
-      { list: [{ type: "imp", n: 10 }, { type: "spitter", n: 5 }] },
-      { list: [{ type: "brute", n: 5 }, { type: "wraith", n: 6 }, { type: "imp", n: 6 }] },
+      { list: [{ type: "knight", n: 4 }, { type: "hound", n: 6 }] },
+      { list: [{ type: "brute", n: 4 }, { type: "wraith", n: 6 }, { type: "cultist", n: 4 }] },
+      { list: [{ type: "imp", n: 10 }, { type: "spitter", n: 5 }, { type: "hound", n: 5 }] },
+      { list: [{ type: "knight", n: 5 }, { type: "brute", n: 4 }, { type: "wraith", n: 6 }] },
       { list: [{ type: "wraith", n: 10 }, { type: "brute", n: 4 }, { type: "spitter", n: 5 }] },
-      { list: [{ type: "brute", n: 6 }, { type: "imp", n: 10 }, { type: "spitter", n: 5 }] },
+      { list: [{ type: "knight", n: 6 }, { type: "cultist", n: 6 }, { type: "hound", n: 8 }] },
     ],
-    boss: { name: "ЗЕРРИС", title: "Владыка Демонов", hp: 2400, kind: "demon" },
+    boss: { name: "ЗЕРРИС", title: "Владыка Демонов", hp: 4000, kind: "demon" },
     floor: ["#1d0f14", "#31141c"],
     sky: ["#12060b", "#3a0f18"],
     accent: "#ff5a3c",
@@ -120,8 +158,8 @@ export const HEROINES: HeroineDef[] = [
     weapon: "bow",
     glow: "#7cc7ff",
     joinLine: [
-      "Холодно... Я думала, Вельмира заморозит моё сердце навечно.",
-      "Ты согрел его одним ударом, Герой. Я Юки — стрелок Северного Клана.",
+      "Стужа отступает... Я думала, вечная зима поглотит эти земли навсегда.",
+      "Ты согрел моё сердце одним ударом, Герой. Я Юки — стрелок Северного Клана.",
       "Моя стрела больше не промахнётся. Ведь мне есть кого защищать.",
     ],
     loveLine: "Ты — моё тепло посреди вечной зимы.",
@@ -152,7 +190,7 @@ export interface UpgradeDef {
   id: string;
   name: string;
   desc: string;
-  icon: "blade" | "heart" | "wing" | "eye" | "fang" | "star" | "moon" | "fury" | "gem" | "thorn";
+  icon: "blade" | "heart" | "wing" | "eye" | "fang" | "star" | "moon" | "fury" | "gem" | "thorn" | "flask" | "stam";
 }
 
 export const UPGRADES: UpgradeDef[] = [
@@ -164,8 +202,10 @@ export const UPGRADES: UpgradeDef[] = [
   { id: "moon", name: "Лунный Шаг", desc: "Перезарядка рывка −25%", icon: "moon" },
   { id: "star", name: "Звёздный Взмах", desc: "Перезарядка Волны −30%", icon: "star" },
   { id: "fury", name: "Ярость Титана", desc: "Ульта заряжается +40% быстрее", icon: "fury" },
-  { id: "gem", name: "Руна Богатства", desc: "Кристаллы выпадают +50%", icon: "gem" },
+  { id: "gem", name: "Руна Богатства", desc: "Руны выпадают +50%", icon: "gem" },
   { id: "thorn", name: "Шипы Кары", desc: "Волна оставляет взрыв, урон +10%", icon: "thorn" },
+  { id: "flask", name: "Фляга Эстуса", desc: "+1 заряд фляги (лечит 45% HP)", icon: "flask" },
+  { id: "stam", name: "Стальная Выносливость", desc: "Макс. стамина +25", icon: "stam" },
 ];
 
 export type Rarity = "rare" | "epic" | "legend";
@@ -175,7 +215,10 @@ export interface BlessingDef {
   name: string;
   rarity: Rarity;
   desc: string;
-  stat: { key: "atkP" | "hp" | "spdP" | "critP" | "vamp" | "xpP" | "cryP" | "dashP" | "ultP"; val: number };
+  stat: {
+    key: "atkP" | "hp" | "spdP" | "critP" | "vamp" | "xpP" | "cryP" | "dashP" | "ultP" | "flask" | "stamP";
+    val: number;
+  };
 }
 
 export const BLESSINGS: BlessingDef[] = [
@@ -185,7 +228,8 @@ export const BLESSINGS: BlessingDef[] = [
   { id: "b4", name: "Точный Фокус", rarity: "rare", desc: "Крит +3%", stat: { key: "critP", val: 3 } },
   { id: "b5", name: "Малая Жажда", rarity: "rare", desc: "Вампиризм +1.5%", stat: { key: "vamp", val: 1.5 } },
   { id: "b6", name: "Умный Амулет", rarity: "rare", desc: "Опыт +10%", stat: { key: "xpP", val: 10 } },
-  { id: "b7", name: "Кошелёк Торговца", rarity: "rare", desc: "Кристаллы +12%", stat: { key: "cryP", val: 12 } },
+  { id: "b7", name: "Кошелёк Торговца", rarity: "rare", desc: "Руны +12%", stat: { key: "cryP", val: 12 } },
+  { id: "b8", name: "Дыхание Бегуна", rarity: "rare", desc: "Стамина +15", stat: { key: "stamP", val: 15 } },
   { id: "e1", name: "Клинок Богини", rarity: "epic", desc: "Атака +15%", stat: { key: "atkP", val: 15 } },
   { id: "e2", name: "Слеза Астреи", rarity: "epic", desc: "Макс. HP +45", stat: { key: "hp", val: 45 } },
   { id: "e3", name: "Сапоги Гермеса", rarity: "epic", desc: "Скорость +9%", stat: { key: "spdP", val: 9 } },
@@ -193,9 +237,12 @@ export const BLESSINGS: BlessingDef[] = [
   { id: "e5", name: "Чаша Феникса", rarity: "epic", desc: "Вампиризм +3.5%", stat: { key: "vamp", val: 3.5 } },
   { id: "e6", name: "Корона Мудреца", rarity: "epic", desc: "Опыт +22%", stat: { key: "xpP", val: 22 } },
   { id: "e7", name: "Прыжок Тени", rarity: "epic", desc: "Рывок −20% кд", stat: { key: "dashP", val: 20 } },
-  { id: "l1", name: "НЕБЕСНЫЙ МЕЧ", rarity: "legend", desc: "Атака +30%, крит +8%", stat: { key: "atkP", val: 30 } },
+  { id: "e8", name: "Фляга Ветерана", rarity: "epic", desc: "+1 заряд фляги", stat: { key: "flask", val: 1 } },
+  { id: "e9", name: "Лёгкий Доспех", rarity: "epic", desc: "Стамина +25", stat: { key: "stamP", val: 25 } },
+  { id: "l1", name: "НЕБЕСНЫЙ МЕЧ", rarity: "legend", desc: "Атака +30%", stat: { key: "atkP", val: 30 } },
   { id: "l2", name: "СЕРДЦЕ ВАЛЬКИРИИ", rarity: "legend", desc: "Макс. HP +90", stat: { key: "hp", val: 90 } },
   { id: "l3", name: "КРЫЛЬЯ АРХАНГЕЛА", rarity: "legend", desc: "Ульта +60% быстрее", stat: { key: "ultP", val: 60 } },
+  { id: "l4", name: "ГРААЛЬ ВЕЧНОСТИ", rarity: "legend", desc: "+2 заряда фляги", stat: { key: "flask", val: 2 } },
 ];
 
 export const RARITY_META: Record<Rarity, { name: string; color: string; glow: string; w: number }> = {
@@ -207,25 +254,55 @@ export const RARITY_META: Record<Rarity, { name: string; color: string; glow: st
 export const GACHA_SINGLE = 25;
 export const GACHA_TEN = 225;
 
-export interface GoddessGift {
+export interface ClassDef {
   id: string;
   name: string;
+  title: string;
   desc: string;
-  icon: "blade" | "heart" | "star";
+  skill: string;
+  icon: "blade" | "star" | "wing";
+  color: string;
 }
 
-export const GODDESS_GIFTS: GoddessGift[] = [
-  { id: "blade", name: "Клинок Воли", desc: "+25% к атаке с самого начала", icon: "blade" },
-  { id: "heart", name: "Сердце Стража", desc: "+60 к макс. здоровью", icon: "heart" },
-  { id: "star", name: "Звезда Удачи", desc: "+60 кристаллов и +15% к добыче", icon: "star" },
+export const CLASSES: ClassDef[] = [
+  {
+    id: "blade",
+    name: "Рыцарь Клинка",
+    title: "Путь стали",
+    desc: "+25% к атаке, +25 к макс. стамина. Для тех, кто решает всё в ближнем бою.",
+    skill: "Q — Лунная волна: рассекающий полумесяц",
+    icon: "blade",
+    color: "#ff2e4d",
+  },
+  {
+    id: "frost",
+    name: "Маг Мороза",
+    title: "Путь звёзд",
+    desc: "+40 к макс. HP. Сам автоматически стреляет ледяными снарядами в ближнего врага.",
+    skill: "Q — Кольцо Мороза: ледяной взрыв вокруг себя",
+    icon: "star",
+    color: "#7cc7ff",
+  },
+  {
+    id: "arrow",
+    name: "Охотник Теней",
+    title: "Путь ночи",
+    desc: "+60 рун на старте, рывок −30% кд. Быстрый, смертоносный, неуловимый.",
+    skill: "Q — Веер Стрел: три стрелы конусом",
+    icon: "wing",
+    color: "#35f0d0",
+  },
 ];
 
 export const ENEMY_BASE: Record<
-  Exclude<EnemyType, "boss">,
+  MinionType,
   { hp: number; speed: number; dmg: number; r: number; xp: number; cry: [number, number] }
 > = {
-  imp: { hp: 26, speed: 96, dmg: 8, r: 15, xp: 6, cry: [0, 2] },
-  spitter: { hp: 34, speed: 70, dmg: 7, r: 16, xp: 9, cry: [1, 2] },
-  brute: { hp: 120, speed: 46, dmg: 16, r: 24, xp: 18, cry: [2, 4] },
-  wraith: { hp: 20, speed: 148, dmg: 6, r: 13, xp: 7, cry: [0, 2] },
+  imp: { hp: 30, speed: 100, dmg: 9, r: 15, xp: 6, cry: [0, 2] },
+  spitter: { hp: 40, speed: 72, dmg: 8, r: 16, xp: 9, cry: [1, 3] },
+  brute: { hp: 140, speed: 48, dmg: 18, r: 24, xp: 18, cry: [2, 5] },
+  wraith: { hp: 24, speed: 152, dmg: 7, r: 13, xp: 7, cry: [0, 2] },
+  hound: { hp: 42, speed: 205, dmg: 11, r: 14, xp: 11, cry: [1, 3] },
+  cultist: { hp: 60, speed: 92, dmg: 13, r: 15, xp: 15, cry: [3, 6] },
+  knight: { hp: 175, speed: 84, dmg: 21, r: 19, xp: 26, cry: [5, 10] },
 };

@@ -44,6 +44,13 @@ export interface HudSnapshot {
   mode: "battle" | "world";
   zone: string;
   hint: string;
+  st: number;
+  stMax: number;
+  flask: number;
+  flaskMax: number;
+  locked: boolean;
+  classId: string;
+  lostRunes: number;
 }
 
 export interface EngineHandlers {
@@ -51,12 +58,13 @@ export interface EngineHandlers {
   onChapterEnd: (chapter: number) => void;
   onVictory: (stats: RunStats) => void;
   onGameOver: () => void;
+  onSave: (save: RunSave) => void;
 }
 
 interface Enemy {
   id: number;
   type: EnemyType;
-  kind?: "fire" | "ice" | "demon";
+  kind?: "fire" | "ice" | "demon" | "bone" | "frost";
   x: number;
   y: number;
   vx: number;
@@ -121,9 +129,19 @@ interface Pickup {
   y: number;
   vx: number;
   vy: number;
-  kind: "xp" | "cry" | "heart";
+  kind: "xp" | "cry" | "heart" | "pile";
   v: number;
   t: number;
+}
+
+interface Telegraph {
+  x: number;
+  y: number;
+  r: number;
+  t: number;
+  max: number;
+  dmg: number;
+  color: string;
 }
 
 interface Arc {
@@ -160,6 +178,31 @@ interface Bonuses {
   dashP: number;
   ultP: number;
   thorn: boolean;
+  stam: number;
+  flask: number;
+}
+
+export interface RunSave {
+  v: number;
+  classId: string;
+  level: number;
+  xp: number;
+  xpNeed: number;
+  hp: number;
+  maxHp: number;
+  atk: number;
+  crit: number;
+  speed: number;
+  dashMax: number;
+  waveMax: number;
+  crystals: number;
+  flaskMax: number;
+  stMax: number;
+  bonuses: Bonuses;
+  worldIdx: number;
+  heroineIds: string[];
+  kills: number;
+  runTime: number;
 }
 
 const HERO_PALETTE = {
@@ -231,7 +274,20 @@ export class Engine {
     xpNeed: 46,
     crystals: 0,
     t: 0,
+    st: 100,
+    stMax: 100,
+    stWait: 0,
+    flask: 3,
+    flaskMax: 3,
   };
+
+  private classId = "blade";
+  private autoT = 0;
+  private lockId: number | null = null;
+  private lostRunes = 0;
+  private heartbeatT = 0;
+  private telegraphs: Telegraph[] = [];
+  private runePileAt: { x: number; y: number } | null = null;
 
   private bonuses: Bonuses = {
     atkP: 0,
@@ -244,6 +300,8 @@ export class Engine {
     dashP: 0,
     ultP: 0,
     thorn: false,
+    stam: 0,
+    flask: 0,
   };
 
   private enemies: Enemy[] = [];
@@ -286,7 +344,7 @@ export class Engine {
   private vH = 640;
   private mx = 480;
   private my = 320;
-  private wObjs: { kind: "portal" | "spring" | "shrine" | "chest"; x: number; y: number; used: boolean }[] = [];
+  private wObjs: { kind: "portal" | "spring" | "shrine" | "chest" | "hearth"; x: number; y: number; used: boolean }[] = [];
   private wDeco: { x: number; y: number; k: number; s: number }[] = [];
   private hint = "";
   private interactCd = 0;
@@ -310,6 +368,10 @@ export class Engine {
     this.onResize = () => this.resize();
     this.onKeyDown = (e) => {
       if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+      if (e.code === "Tab") {
+        e.preventDefault();
+        this.toggleLock();
+      }
       this.keys.add(e.code);
     };
     this.onKeyUp = (e) => this.keys.delete(e.code);
@@ -320,6 +382,7 @@ export class Engine {
     };
     this.onMouseDown = (e) => {
       if (e.button === 0) this.mouse.down = true;
+      if (e.button === 2) this.toggleLock();
     };
     this.onMouseUp = () => (this.mouse.down = false);
     this.onCtx = (e) => e.preventDefault();
@@ -374,13 +437,15 @@ export class Engine {
 
   // ============================ public API ============================
 
-  start(blessing: string) {
-    this.blessingId = blessing;
+  start(classId: string) {
+    this.classId = classId;
+    this.blessingId = classId;
     const p = this.player;
     p.hp = 100;
     p.maxHp = 100;
     p.atk = 14;
     p.crit = 0.12;
+    p.speed = 258;
     p.dashMax = 1.15;
     p.waveMax = 3.4;
     p.level = 1;
@@ -392,17 +457,26 @@ export class Engine {
     p.waveCd = 0;
     p.ultT = 0;
     p.inv = 1.5;
-    this.bonuses = { atkP: 0, hp: 0, spdP: 0, critP: 0, vamp: 0, xpP: 0, cryP: 0, dashP: 0, ultP: 0, thorn: false };
-    if (blessing === "blade") this.bonuses.atkP += 25;
-    if (blessing === "heart") {
-      this.bonuses.hp += 60;
-      p.maxHp = 160;
-      p.hp = 160;
+    p.stMax = 100;
+    p.st = 100;
+    p.flaskMax = 3;
+    p.flask = 3;
+    this.bonuses = { atkP: 0, hp: 0, spdP: 0, critP: 0, vamp: 0, xpP: 0, cryP: 0, dashP: 0, ultP: 0, thorn: false, stam: 0, flask: 0 };
+    if (classId === "blade") {
+      this.bonuses.atkP += 25;
+      this.bonuses.stam += 25;
     }
-    if (blessing === "star") {
+    if (classId === "frost") {
+      this.bonuses.hp += 40;
+      p.maxHp = 140;
+      p.hp = 140;
+    }
+    if (classId === "arrow") {
       p.crystals = 80;
-      this.bonuses.cryP += 15;
+      this.bonuses.dashP += 30;
     }
+    p.stMax += this.bonuses.stam;
+    p.st = p.stMax;
     this.heroines = [];
     this.kills = 0;
     this.runTime = 0;
@@ -411,11 +485,139 @@ export class Engine {
     this.frozen = false;
     this.paused = false;
     this.combo = 0;
+    this.lockId = null;
+    this.lostRunes = 0;
+    this.telegraphs = [];
+    this.runePileAt = null;
+    this.autoT = 1.4;
     this.startWorld(0);
+  }
+
+  serialize(): RunSave {
+    const p = this.player;
+    return {
+      v: 1,
+      classId: this.classId,
+      level: p.level,
+      xp: p.xp,
+      xpNeed: p.xpNeed,
+      hp: p.hp,
+      maxHp: p.maxHp,
+      atk: p.atk,
+      crit: p.crit,
+      speed: p.speed,
+      dashMax: p.dashMax,
+      waveMax: p.waveMax,
+      crystals: p.crystals,
+      flaskMax: p.flaskMax,
+      stMax: p.stMax,
+      bonuses: { ...this.bonuses },
+      worldIdx: this.mode === "world" ? this.worldIdx : this.chapterIdx + 1,
+      heroineIds: this.heroines.map((h) => h.def.id),
+      kills: this.kills,
+      runTime: this.runTime,
+    };
+  }
+
+  loadSave(s: RunSave) {
+    const p = this.player;
+    this.classId = s.classId;
+    p.level = s.level;
+    p.xp = s.xp;
+    p.xpNeed = s.xpNeed;
+    p.maxHp = s.maxHp;
+    p.hp = Math.min(s.hp, s.maxHp);
+    p.atk = s.atk;
+    p.crit = s.crit;
+    p.speed = s.speed;
+    p.dashMax = s.dashMax;
+    p.waveMax = s.waveMax;
+    p.crystals = s.crystals;
+    p.flaskMax = s.flaskMax;
+    p.flask = s.flaskMax;
+    p.stMax = s.stMax;
+    p.st = s.stMax;
+    this.bonuses = { ...s.bonuses };
+    this.heroines = [];
+    for (const id of s.heroineIds) this.addHeroine(id);
+    this.kills = s.kills;
+    this.runTime = s.runTime;
+    this.dead = false;
+    this.victoryDone = false;
+    this.frozen = false;
+    this.lockId = null;
+    this.lostRunes = 0;
+    this.telegraphs = [];
+    this.runePileAt = null;
+    this.startWorld(Math.min(s.worldIdx, CHAPTERS.length - 1));
   }
 
   setPaused(b: boolean) {
     this.paused = b;
+  }
+
+  private toggleLock() {
+    if (this.dead || this.paused || this.frozen) return;
+    if (this.lockId !== null) {
+      this.lockId = null;
+      return;
+    }
+    const t = this.nearestEnemy(this.player.x, this.player.y, 560);
+    if (t) {
+      this.lockId = t.id;
+      sfx.ui();
+    }
+  }
+
+  private lockedEnemy(): Enemy | null {
+    if (this.lockId === null) return null;
+    const e = this.enemies.find((x) => x.id === this.lockId && x.hp > 0);
+    if (!e) {
+      this.lockId = null;
+      return null;
+    }
+    if (Math.hypot(e.x - this.player.x, e.y - this.player.y) > 820) {
+      this.lockId = null;
+      return null;
+    }
+    return e;
+  }
+
+  private spendSt(cost: number): boolean {
+    const p = this.player;
+    if (p.st < cost) {
+      if (p.stWait <= -0.4) {
+        p.stWait = -0.4;
+        this.floats.push({ x: p.x, y: p.y - 40, life: 0.5, max: 0.5, text: "НЕТ СИЛ", color: "#9aa8c7", size: 12 });
+      }
+      return false;
+    }
+    p.st -= cost;
+    p.stWait = 0.7;
+    return true;
+  }
+
+  private addTelegraph(x: number, y: number, r: number, delay: number, dmg: number, color: string) {
+    this.telegraphs.push({ x, y, r, t: 0, max: delay, dmg, color });
+  }
+
+  private updateTelegraphs(dt: number) {
+    const p = this.player;
+    for (const tg of this.telegraphs) {
+      tg.t += dt;
+      if (tg.t >= tg.max) {
+        tg.t = tg.max + 1;
+        this.arcs.push({ x: tg.x, y: tg.y, ang: 0, spread: Math.PI * 2, r: tg.r, life: 0.3, max: 0.3, color: tg.color, width: 6 });
+        this.burst(tg.x, tg.y, tg.color, 12, true);
+        this.shake = Math.max(this.shake, 6);
+        sfx.wave();
+        if (Math.hypot(p.x - tg.x, p.y - tg.y) < tg.r + p.r * 0.5) this.playerHurt(tg.dmg);
+        for (const h of this.heroines) {
+          if (Math.hypot(h.x - tg.x, h.y - tg.y) < tg.r) this.burst(h.x, h.y - 10, "#ff6b8a", 6, true);
+        }
+      }
+    }
+    this.telegraphs = this.telegraphs.filter((tg) => tg.t <= tg.max);
   }
 
   spendCrystals(n: number): boolean {
@@ -438,7 +640,14 @@ export class Engine {
       this.player.hp = Math.min(this.player.maxHp, this.player.hp + s.val);
     } else if (s.key === "dashP") this.bonuses.dashP += s.val;
     else if (s.key === "ultP") this.bonuses.ultP += s.val;
-    else this.bonuses[s.key] += s.val;
+    else if (s.key === "flask") {
+      this.bonuses.flask += s.val;
+      this.player.flaskMax += s.val;
+      this.player.flask += s.val;
+    } else if (s.key === "stamP") {
+      this.bonuses.stam += s.val;
+      this.player.stMax += s.val;
+    } else this.bonuses[s.key] += s.val;
     sfx.crystal();
   }
 
@@ -459,6 +668,15 @@ export class Engine {
       case "fury": this.bonuses.ultP += 40; break;
       case "gem": this.bonuses.cryP += 50; break;
       case "thorn": this.bonuses.thorn = true; this.bonuses.atkP += 10; break;
+      case "flask":
+        this.bonuses.flask += 1;
+        p.flaskMax += 1;
+        p.flask += 1;
+        break;
+      case "stam":
+        this.bonuses.stam += 25;
+        p.stMax += 25;
+        break;
     }
     sfx.ui();
     this.frozen = false;
@@ -519,6 +737,13 @@ export class Engine {
       waveMax: p.waveMax,
       ult: Math.min(100, p.ult),
       party: this.heroines.map((h) => ({ id: h.def.id, name: h.def.name, color: h.def.hair })),
+      st: Math.round(p.st),
+      stMax: p.stMax,
+      flask: p.flask,
+      flaskMax: p.flaskMax,
+      locked: this.lockId !== null,
+      classId: this.classId,
+      lostRunes: this.lostRunes,
     };
   }
 
@@ -569,10 +794,8 @@ export class Engine {
     p.waveCd = 0;
 
     if (i === 1 && !this.heroines.some((h) => h.def.id === "aria")) this.addHeroine("aria");
-    if (i === 2) {
-      if (!this.heroines.some((h) => h.def.id === "yuki")) this.addHeroine("yuki");
-      if (!this.heroines.some((h) => h.def.id === "lira")) this.addHeroine("lira");
-    }
+    if (i === 3 && !this.heroines.some((h) => h.def.id === "yuki")) this.addHeroine("yuki");
+    if (i === 4 && !this.heroines.some((h) => h.def.id === "lira")) this.addHeroine("lira");
 
     const rnd = mulberry(1234 + i * 777);
     this.deco = [];
@@ -588,8 +811,9 @@ export class Engine {
     this.mode = "world";
     this.worldIdx = Math.min(i, CHAPTERS.length - 1);
     const ch = CHAPTERS[this.worldIdx];
-    this.mapW = 2800 + this.worldIdx * 520;
-    this.mapH = 1500 + this.worldIdx * 220;
+    this.mapW = 3400 + this.worldIdx * 640;
+    this.mapH = 1900 + this.worldIdx * 280;
+    this.telegraphs = [];
     this.enemies = [];
     this.projs = [];
     this.picks = [];
@@ -614,20 +838,20 @@ export class Engine {
 
     // героини, спасённые к этому моменту, путешествуют вместе с героем
     if (i === 1 && !this.heroines.some((h) => h.def.id === "aria")) this.addHeroine("aria");
-    if (i === 2) {
-      if (!this.heroines.some((h) => h.def.id === "yuki")) this.addHeroine("yuki");
-      if (!this.heroines.some((h) => h.def.id === "lira")) this.addHeroine("lira");
-    }
+    if (i === 3 && !this.heroines.some((h) => h.def.id === "yuki")) this.addHeroine("yuki");
+    if (i === 4 && !this.heroines.some((h) => h.def.id === "lira")) this.addHeroine("lira");
 
     const rnd = mulberry(4242 + this.worldIdx * 911);
     this.wObjs = [];
     this.wObjs.push({ kind: "portal", x: this.mapW - 190, y: Math.min(Math.max(this.mapH / 2 + (rnd() - 0.5) * 500, 220), this.mapH - 220), used: false });
+    // souls: очаг — точка сохранения и отдыха
+    this.wObjs.push({ kind: "hearth", x: 560 + rnd() * (this.mapW - 1600), y: 260 + rnd() * (this.mapH - 520), used: false });
     this.wObjs.push({ kind: "spring", x: 520 + rnd() * (this.mapW - 1300), y: 220 + rnd() * (this.mapH - 440), used: false });
     this.wObjs.push({ kind: "shrine", x: 760 + rnd() * (this.mapW - 1500), y: 220 + rnd() * (this.mapH - 440), used: false });
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < 4; k++) {
       this.wObjs.push({ kind: "chest", x: 420 + rnd() * (this.mapW - 900), y: 180 + rnd() * (this.mapH - 360), used: false });
     }
-    for (let k = 0; k < 14; k++) {
+    for (let k = 0; k < 20; k++) {
       const isHeart = rnd() < 0.18;
       this.picks.push({
         x: 320 + rnd() * (this.mapW - 560),
@@ -639,11 +863,26 @@ export class Engine {
       });
     }
     this.wDeco = [];
-    for (let k = 0; k < 90; k++) {
+    for (let k = 0; k < 130; k++) {
       this.wDeco.push({ x: rnd() * this.mapW, y: rnd() * this.mapH, k: Math.floor(rnd() * 4), s: 0.6 + rnd() });
     }
+    // город: кварталы домов с факелами (со 2-й зоны)
+    if (this.worldIdx >= 1) {
+      const blocks = 3 + this.worldIdx;
+      for (let b = 0; b < blocks; b++) {
+        const bx = 700 + rnd() * (this.mapW - 1700);
+        const by = 320 + rnd() * (this.mapH - 700);
+        const houses = 3 + Math.floor(rnd() * 3);
+        for (let hgi = 0; hgi < houses; hgi++) {
+          this.wDeco.push({ x: bx + (rnd() - 0.5) * 360, y: by + (rnd() - 0.5) * 260, k: 4, s: 0.8 + rnd() * 0.9 });
+        }
+        for (let tgi = 0; tgi < 3; tgi++) {
+          this.wDeco.push({ x: bx + (rnd() - 0.5) * 420, y: by + (rnd() - 0.5) * 300, k: 5, s: 1 });
+        }
+      }
+    }
     this.worldSpawnT = 2.5;
-    this.banner = { text: "ОТКРЫТЫЙ МИР", sub: `${ch.name} — исследуй, собирай кристаллы, найди врата`, t: 3 };
+    this.banner = { text: "ОТКРЫТЫЙ МИР", sub: `${ch.name} — очаг сохранит прогресс, врата ждут`, t: 3 };
     this.flashWhite = 0.7;
     sfx.join();
   }
@@ -677,8 +916,8 @@ export class Engine {
     this.worldSpawnT -= dt;
     if (this.worldSpawnT <= 0) {
       this.worldSpawnT = 2.6;
-      if (this.enemies.length < 5) {
-        const types: Exclude<EnemyType, "boss">[] = ["imp", "imp", "wraith", "spitter"];
+      if (this.enemies.length < 6) {
+        const types: Exclude<EnemyType, "boss">[] = ["imp", "imp", "wraith", "spitter", "hound", "cultist"];
         const a = Math.random() * Math.PI * 2;
         const d = 520 + Math.random() * 340;
         const x = Math.min(Math.max(p.x + Math.cos(a) * d, 60), this.mapW - 60);
@@ -727,7 +966,9 @@ export class Engine {
           ? "E — принять благословение"
           : near.kind === "chest"
             ? "E — открыть сундук"
-            : "Источник исцеления — встань в воду"
+            : near.kind === "hearth"
+              ? "E — отдохнуть у очага (сохранение)"
+              : "Источник исцеления — встань в воду"
       : "Исследуй мир · найди золотые врата";
 
     if (near && this.interactCd <= 0 && (this.keys.has("KeyE") || this.keys.has("KeyL"))) {
@@ -736,6 +977,21 @@ export class Engine {
         this.flashWhite = 0.95;
         sfx.ult();
         this.startChapter(this.worldIdx);
+        return;
+      }
+      if (near.kind === "hearth") {
+        this.interactCd = 1.2;
+        const p2 = this.player;
+        p2.flask = p2.flaskMax;
+        p2.hp = p2.maxHp;
+        p2.st = p2.stMax;
+        this.enemies = [];
+        this.worldSpawnT = 3;
+        this.burst(near.x, near.y - 20, "#ffd166", 30, true);
+        this.floats.push({ x: p2.x, y: p2.y - 40, life: 1.2, max: 1.2, text: "ПРОГРЕСС СОХРАНЁН", color: "#ffd166", size: 17 });
+        this.banner = { text: "ОЧАГ", sub: "Фляги полны · демоны вернутся · прогресс сохранён", t: 2.4 };
+        sfx.levelup();
+        this.handlers.onSave(this.serialize());
         return;
       }
       if (near.kind === "shrine") {
@@ -796,6 +1052,52 @@ export class Engine {
     this.runTime += dt;
     p.t += dt;
 
+    // souls: стамина
+    p.stWait = Math.max(-1, p.stWait - dt);
+    if (p.stWait <= 0) p.st = Math.min(p.stMax, p.st + 42 * dt);
+
+    // souls: фляга Эстуса (F)
+    if (this.keys.has("KeyF") && p.flask > 0 && p.hp < p.maxHp) {
+      this.keys.delete("KeyF");
+      p.flask--;
+      const heal = p.maxHp * 0.45;
+      p.hp = Math.min(p.maxHp, p.hp + heal);
+      this.floats.push({ x: p.x, y: p.y - 38, life: 1, max: 1, text: `+${Math.round(heal)} ФЛЯГА`, color: "#ffd166", size: 16 });
+      this.burst(p.x, p.y - 12, "#ffd166", 16, true);
+      sfx.heal();
+    }
+
+    // souls: поддержка захвата цели
+    this.lockedEnemy();
+
+    // класс Маг Мороза: автоматические ледяные снаряды
+    if (this.classId === "frost") {
+      this.autoT -= dt;
+      if (this.autoT <= 0) {
+        this.autoT = 2.1;
+        const target = this.lockedEnemy() ?? this.nearestEnemy(p.x, p.y, 460);
+        if (target) {
+          const a = Math.atan2(target.y - p.y, target.x - p.x);
+          this.projs.push({
+            x: p.x + Math.cos(a) * 20, y: p.y - 14 + Math.sin(a) * 20,
+            vx: Math.cos(a) * 480, vy: Math.sin(a) * 480,
+            r: 8, dmg: this.effAtk() * 0.55, from: "ally", life: 1.1,
+            color: "#9fd8ff", kind: "bolt", pierce: 1, hits: new Set(),
+          });
+          sfx.magic();
+        }
+      }
+    }
+
+    // souls: пульс сердца при низком HP
+    if (p.hp < p.maxHp * 0.3) {
+      this.heartbeatT -= dt;
+      if (this.heartbeatT <= 0) {
+        this.heartbeatT = 0.9;
+        sfx.heartbeat();
+      }
+    }
+
     // ввод
     let dx = 0;
     let dy = 0;
@@ -814,7 +1116,7 @@ export class Engine {
     // рывок
     p.dashCd = Math.max(0, p.dashCd - dt);
     p.inv = Math.max(0, p.inv - dt);
-    if ((this.keys.has("Space") || this.keys.has("ShiftLeft")) && p.dashCd <= 0 && p.dashT <= 0) {
+    if ((this.keys.has("Space") || this.keys.has("ShiftLeft")) && p.dashCd <= 0 && p.dashT <= 0 && this.spendSt(24)) {
       p.dashT = 0.16;
       p.dashCd = this.effDashMax();
       p.dashDx = len > 0 ? dx : Math.cos(Math.atan2(this.my - p.y, this.mx - p.x));
@@ -847,18 +1149,49 @@ export class Engine {
       this.doAttack();
     }
 
-    // волна (Q / K)
+    // классовый навык (Q / K)
     p.waveCd = Math.max(0, p.waveCd - dt);
-    if ((this.keys.has("KeyQ") || this.keys.has("KeyK")) && p.waveCd <= 0 && p.ultT <= 0) {
+    if ((this.keys.has("KeyQ") || this.keys.has("KeyK")) && p.waveCd <= 0 && p.ultT <= 0 && this.spendSt(28)) {
       p.waveCd = p.waveMax;
-      const a = Math.atan2(this.my - p.y, this.mx - p.x);
-      this.projs.push({
-        x: p.x + Math.cos(a) * 26, y: p.y - 8 + Math.sin(a) * 26,
-        vx: Math.cos(a) * 540, vy: Math.sin(a) * 540,
-        r: 24, dmg: this.effAtk() * 2.1, from: "ally", life: 0.85,
-        color: "#35f0d0", kind: "crescent", pierce: 999, hits: new Set(),
-      });
-      sfx.wave();
+      if (this.classId === "frost") {
+        // Кольцо Мороза: ледяной взрыв вокруг героя
+        this.arcs.push({ x: p.x, y: p.y - 6, ang: 0, spread: Math.PI * 2, r: 165, life: 0.3, max: 0.3, color: "#9fd8ff", width: 8 });
+        for (const e of this.enemies) {
+          const d = Math.hypot(e.x - p.x, e.y - p.y);
+          if (d < 175 + e.r) {
+            const a = Math.atan2(e.y - p.y, e.x - p.x);
+            this.hurtEnemy(e, this.effAtk() * 1.7, Math.random() < this.effCrit(), Math.cos(a) * 300, Math.sin(a) * 300);
+            e.speed *= 0.6; // обморожение
+            setTimeout(() => { if (e.hp > 0) e.speed /= 0.6; }, 1400);
+          }
+        }
+        this.burst(p.x, p.y - 8, "#9fd8ff", 22, true);
+        this.shake = Math.max(this.shake, 7);
+        sfx.wave();
+      } else if (this.classId === "arrow") {
+        // Веер Стрел
+        const base = Math.atan2(this.my - p.y, this.mx - p.x);
+        for (let i = -1; i <= 1; i++) {
+          const a = base + i * 0.24;
+          this.projs.push({
+            x: p.x + Math.cos(a) * 22, y: p.y - 10 + Math.sin(a) * 22,
+            vx: Math.cos(a) * 640, vy: Math.sin(a) * 640,
+            r: 9, dmg: this.effAtk() * 1.15, from: "ally", life: 0.9,
+            color: "#35f0d0", kind: "arrow", pierce: 2, hits: new Set(),
+          });
+        }
+        sfx.arrow();
+        sfx.wave();
+      } else {
+        const a = Math.atan2(this.my - p.y, this.mx - p.x);
+        this.projs.push({
+          x: p.x + Math.cos(a) * 26, y: p.y - 8 + Math.sin(a) * 26,
+          vx: Math.cos(a) * 540, vy: Math.sin(a) * 540,
+          r: 24, dmg: this.effAtk() * 2.1, from: "ally", life: 0.85,
+          color: "#35f0d0", kind: "crescent", pierce: 999, hits: new Set(),
+        });
+        sfx.wave();
+      }
     }
 
     // ульта (E / L)
@@ -898,6 +1231,7 @@ export class Engine {
     else this.updateWorld(dt);
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
+    this.updateTelegraphs(dt);
     this.updatePickups(dt);
 
     // частицы / тексты / дуги
@@ -931,6 +1265,8 @@ export class Engine {
         this.parts.push({ x, y: this.camY + this.H + 8, vx: (Math.random() - 0.5) * 24, vy: -30 - Math.random() * 40, life: 4, max: 4, size: 2 + Math.random() * 2.5, color: "rgba(255,140,60,0.7)", glow: true, grav: 0 });
       } else if (ch.ambient === "ash") {
         this.parts.push({ x, y: this.camY - 8, vx: 14 + Math.random() * 18, vy: 26 + Math.random() * 22, life: 6, max: 6, size: 1.5 + Math.random() * 2, color: "rgba(200,200,210,0.4)", glow: false, grav: 0 });
+      } else if (ch.ambient === "snow") {
+        this.parts.push({ x, y: this.camY - 8, vx: -20 - Math.random() * 24, vy: 40 + Math.random() * 26, life: 5, max: 5, size: 1.6 + Math.random() * 2.2, color: "rgba(220,240,255,0.65)", glow: false, grav: 4 });
       } else {
         this.parts.push({ x, y: this.camY - 8, vx: -10 - Math.random() * 16, vy: 34 + Math.random() * 20, life: 5, max: 5, size: 2.5 + Math.random() * 2, color: "rgba(140,220,120,0.5)", glow: false, grav: 8 });
       }
@@ -939,6 +1275,10 @@ export class Engine {
 
   private doAttack() {
     const p = this.player;
+    if (!this.spendSt(12)) {
+      p.comboCd = 0.25;
+      return;
+    }
     const idx = p.comboIdx;
     p.comboIdx = (p.comboIdx + 1) % 3;
     const mul = [1, 1, 1.75][idx];
@@ -946,7 +1286,10 @@ export class Engine {
     const spread = [1.7, 1.7, 2.3][idx];
     p.comboCd = idx === 2 ? 0.42 : 0.3;
     p.attackT = 0;
-    const a = Math.atan2(this.my - (p.y - 8), this.mx - p.x);
+    const lock = this.lockedEnemy();
+    const aimX = lock ? lock.x : this.mx;
+    const aimY = lock ? lock.y - 8 : this.my;
+    const a = Math.atan2(aimY - (p.y - 8), aimX - p.x);
     if (Math.cos(a) !== 0) p.face = Math.cos(a) >= 0 ? 1 : -1;
     this.arcs.push({
       x: p.x, y: p.y - 8, ang: a, spread, r: radius,
@@ -981,6 +1324,20 @@ export class Engine {
 
   private hurtEnemy(e: Enemy, dmg: number, crit: boolean, kx: number, ky: number, silent = false) {
     if (e.hp <= 0) return;
+    // souls: рыцарь-демон блокирует щитом удары спереди
+    if (e.type === "knight") {
+      const fromRight = kx <= 0; // атака прилетела справа от врага?
+      const attackerX = e.x - kx;
+      const frontal = (attackerX >= e.x && e.face === 1) || (attackerX < e.x && e.face === -1);
+      void fromRight;
+      if (frontal && Math.random() < 0.6) {
+        dmg *= 0.3;
+        this.floats.push({ x: e.x, y: e.y - e.r - 14, life: 0.5, max: 0.5, text: "БЛОК!", color: "#c9a0ff", size: 13 });
+        this.burst(e.x + e.face * 14, e.y - 8, "#c9a0ff", 5, true);
+        kx *= 0.2;
+        ky *= 0.2;
+      }
+    }
     e.hp -= dmg;
     e.flash = 0.12;
     e.vx += kx;
@@ -999,11 +1356,26 @@ export class Engine {
     if (e.hp <= 0) this.killEnemy(e);
   }
 
+  private hurtHeroinesNear(x: number, y: number, r: number) {
+    for (const h of this.heroines) {
+      if (Math.hypot(h.x - x, h.y - y) < r) this.burst(h.x, h.y - 10, "#ff6b8a", 6, true);
+    }
+  }
+
   private killEnemy(e: Enemy) {
     this.kills++;
     const p = this.player;
     p.ult = Math.min(100, p.ult + 5 * this.ultMul());
     this.burst(e.x, e.y - 6, "#ff5a3c", 12, true);
+    // souls: души павших слетаются к герою
+    for (let i = 0; i < 3; i++) {
+      this.parts.push({
+        x: e.x, y: e.y - 10,
+        vx: (Math.random() - 0.5) * 120, vy: -60 - Math.random() * 60,
+        life: 0.7, max: 0.7, size: 3, color: "rgba(255,246,216,0.9)", glow: true, grav: -140,
+      });
+    }
+    if (this.lockId === e.id) this.lockId = null;
     this.hitstop = Math.max(this.hitstop, 0.045);
 
     // дроп
@@ -1023,7 +1395,8 @@ export class Engine {
     this.flashWhite = 0.9;
     this.burst(e.x, e.y - 20, "#ffd166", 50, true);
     this.burst(e.x, e.y - 20, "#ff2e4d", 40, true);
-    this.addCrystals(60);
+    this.addCrystals(60 + this.chapterIdx * 20);
+    this.hitstop = 0.55; // souls: медленное время в момент гибели босса
     sfx.bossDie();
     this.frozen = true;
     const idx = this.chapterIdx;
@@ -1061,6 +1434,17 @@ export class Engine {
     const p = this.player;
     this.dead = true;
     this.combo = 0;
+    this.lockId = null;
+    // souls: руны рассыпаются на месте гибели
+    const lost = Math.floor(p.crystals * 0.6);
+    if (lost > 0) {
+      p.crystals -= lost;
+      this.lostRunes = lost;
+      this.runePileAt = { x: p.x, y: p.y };
+      this.picks.push({ x: p.x, y: p.y - 6, vx: 0, vy: 0, kind: "pile", v: lost, t: 0 });
+    } else {
+      this.lostRunes = 0;
+    }
     this.burst(p.x, p.y - 10, "#f7ecf2", 34, true);
     this.burst(p.x, p.y - 10, "#ff2e4d", 16, true);
     this.flashRed = 0.7;
@@ -1107,12 +1491,32 @@ export class Engine {
     this.heroines.forEach((h, i) => {
       h.t += dt;
       h.atkT -= dt;
-      h.lunge = Math.max(0, h.lunge - dt * 4);
       const slot = slots[i % 3];
-      const tx = p.x + slot[0];
-      const ty = p.y + slot[1];
-      h.x += (tx - h.x) * Math.min(1, dt * 5);
-      h.y += (ty - h.y) * Math.min(1, dt * 5);
+      const sx = p.x + slot[0];
+      const sy = p.y + slot[1];
+
+      if (h.lunge > 0) {
+        // плавный рывок к цели и обратно — никакого телепорта
+        h.lunge = Math.max(0, h.lunge - dt * 3.4);
+        const phase = h.lunge; // 1 → 0
+        if (phase > 0.5) {
+          const k = Math.min(1, dt * 14);
+          h.x += (h.tx - h.x) * k;
+          h.y += (h.ty - h.y) * k;
+        } else {
+          const k = Math.min(1, dt * 7);
+          h.x += (sx - h.x) * k;
+          h.y += (sy - h.y) * k;
+        }
+        if (Math.random() < dt * 30) {
+          this.parts.push({ x: h.x, y: h.y - 8, vx: 0, vy: -20, life: 0.25, max: 0.25, size: 5, color: `${h.def.glow}88`, glow: true, grav: 0 });
+        }
+        return;
+      }
+
+      const k = Math.min(1, dt * 5);
+      h.x += (sx - h.x) * k;
+      h.y += (sy - h.y) * k;
       if (h.atkT > 0) return;
 
       const w = h.def.weapon;
@@ -1314,6 +1718,67 @@ export class Engine {
             color: e.type === "spitter" ? "#7dff6a" : "#ff9f43", kind: "orb", pierce: 1, hits: new Set(),
           });
         }
+      } else if (e.type === "hound") {
+        // souls-гончая: кружит, затем рывок с телеграфом
+        e.stateT -= dt;
+        if (e.state === "lunge") {
+          mx = e.vx;
+          my = e.vy;
+          if (e.stateT <= 0) {
+            e.state = "circle";
+            e.stateT = 1.4 + Math.random();
+            e.vx = 0;
+            e.vy = 0;
+          }
+        } else if (e.state === "windup") {
+          e.flash = 0.06;
+          if (e.stateT <= 0) {
+            e.state = "lunge";
+            e.stateT = 0.3;
+            e.vx = nx * 620;
+            e.vy = ny * 620;
+            sfx.dash();
+          }
+        } else {
+          const side = e.id % 2 === 0 ? 1 : -1;
+          mx = (nx * 0.4 + -ny * side * 0.9) * e.speed;
+          my = (ny * 0.4 + nx * side * 0.9) * e.speed;
+          if (e.stateT <= 0 && dist < 240) {
+            e.state = "windup";
+            e.stateT = 0.34;
+          }
+        }
+      } else if (e.type === "cultist") {
+        // культ-маг: держит дистанцию, стреляет проклятыми сгустками, телепортируется
+        if (dist > 360) {
+          mx = nx * e.speed;
+          my = ny * e.speed;
+        } else if (dist < 230) {
+          mx = -nx * e.speed;
+          my = -ny * e.speed;
+        }
+        e.shootCd -= dt;
+        if (e.shootCd <= 0 && dist < 560) {
+          e.shootCd = 2.6;
+          const a = Math.atan2(dyp, dxp);
+          this.projs.push({
+            x: e.x, y: e.y - 14, vx: Math.cos(a) * 290, vy: Math.sin(a) * 290,
+            r: 8, dmg: e.dmg, from: "foe", life: 3,
+            color: "#c46bff", kind: "orb", pierce: 1, hits: new Set(),
+          });
+          sfx.magic();
+          if (Math.random() < 0.35) {
+            this.burst(e.x, e.y - 8, "#c46bff", 10, true);
+            const a2 = Math.random() * Math.PI * 2;
+            e.x = Math.min(Math.max(e.x + Math.cos(a2) * 170, 40), this.vW - 40);
+            e.y = Math.min(Math.max(e.y + Math.sin(a2) * 170, this.mode === "world" ? 70 : 110), this.vH - 40);
+            this.burst(e.x, e.y - 8, "#c46bff", 10, true);
+          }
+        }
+      } else if (e.type === "knight") {
+        // бронированный демон-рыцарь: медленный, щит спереди
+        mx = nx * e.speed;
+        my = ny * e.speed;
       }
 
       // отталкивание врагов друг от друга
@@ -1372,6 +1837,19 @@ export class Engine {
       return;
     }
 
+    if (e.kind === "bone" && !e.enraged && hpFrac < 0.5) {
+      e.enraged = true;
+      e.speed *= 1.3;
+      this.banner = { text: "НЕКРОМАНТИЯ", sub: "Каэл взывает к мёртвым!", t: 1.6 };
+      sfx.bossRoar();
+    }
+    if (e.kind === "frost" && !e.enraged && hpFrac < 0.5) {
+      e.enraged = true;
+      e.speed *= 1.35;
+      this.banner = { text: "МЕТЕЛЬ", sub: "Неэра обрушивает стужу!", t: 1.6 };
+      sfx.bossRoar();
+    }
+
     if (e.state === "move") {
       e.vx = nx * e.speed;
       e.vy = ny * e.speed;
@@ -1379,7 +1857,9 @@ export class Engine {
         const roll = Math.random();
         if (e.kind === "fire") e.state = roll < 0.55 ? "windup_radial" : "windup_charge";
         else if (e.kind === "ice") e.state = roll < 0.5 ? "windup_fan" : "summon";
-        else e.state = roll < 0.4 ? "windup_radial" : roll < 0.7 ? "windup_charge" : "summon";
+        else if (e.kind === "bone") e.state = roll < 0.4 ? "windup_radial" : roll < 0.7 ? "windup_ring" : "summon";
+        else if (e.kind === "frost") e.state = roll < 0.35 ? "windup_fan" : roll < 0.65 ? "windup_ring" : roll < 0.85 ? "windup_charge" : "summon";
+        else e.state = roll < 0.34 ? "windup_radial" : roll < 0.58 ? "windup_charge" : roll < 0.8 ? "windup_ring" : "summon";
         e.stateT = e.state === "summon" ? 0.4 : 0.55;
       }
       return;
@@ -1412,17 +1892,28 @@ export class Engine {
           sfx.dash();
         } else if (e.state === "windup_fan") {
           const base = Math.atan2(p.y - e.y, p.x - e.x);
-          for (let i = -2; i <= 2; i++) {
-            const a = base + i * 0.22;
+          const n = e.kind === "frost" && e.enraged ? 4 : 2;
+          for (let i = -n; i <= n; i++) {
+            const a = base + i * 0.2;
             this.projs.push({
               x: e.x, y: e.y - 10, vx: Math.cos(a) * 330, vy: Math.sin(a) * 330,
               r: 8, dmg: e.dmg * 0.7, from: "foe", life: 2.6,
-              color: "#bfe6ff", kind: "shard", pierce: 1, hits: new Set(),
+              color: e.kind === "frost" ? "#9fd8ff" : "#bfe6ff", kind: "shard", pierce: 1, hits: new Set(),
             });
           }
           sfx.magic();
           e.state = "move";
           e.stateT = 1.4;
+        } else if (e.state === "windup_ring") {
+          // souls-телеграф: расширяющееся кольцо смерти на позиции героя
+          const color = e.kind === "frost" ? "#9fd8ff" : "#c9a0ff";
+          this.addTelegraph(p.x, p.y, 120 + (e.enraged ? 30 : 0), 0.95, e.dmg * 1.15, color);
+          if (e.enraged) {
+            this.addTelegraph(p.x + (Math.random() - 0.5) * 200, p.y + (Math.random() - 0.5) * 160, 90, 1.25, e.dmg, color);
+          }
+          sfx.bossRoar();
+          e.state = "move";
+          e.stateT = e.enraged ? 1 : 1.7;
         }
       }
       return;
@@ -1440,9 +1931,13 @@ export class Engine {
 
     if (e.state === "summon") {
       if (e.stateT <= 0) {
-        const n = e.kind === "ice" ? 3 : 4;
+        const n = e.kind === "ice" || e.kind === "frost" ? 3 : e.enraged ? 5 : 4;
+        const pool: Exclude<EnemyType, "boss">[] =
+          e.kind === "bone" ? ["cultist", "wraith", "imp"] :
+          e.kind === "frost" ? ["wraith", "hound"] :
+          e.kind === "ice" ? ["wraith"] : ["imp"];
         for (let i = 0; i < n; i++) {
-          this.spawnEnemy(e.kind === "ice" ? "wraith" : "imp");
+          this.spawnEnemy(pool[Math.floor(Math.random() * pool.length)]);
         }
         this.burst(e.x, e.y - 10, "#c46bff", 16, true);
         sfx.magic();
@@ -1535,8 +2030,15 @@ export class Engine {
           sfx.pickup();
         } else if (pk.kind === "cry") {
           p.crystals += pk.v;
-          this.floats.push({ x: p.x, y: p.y - 34, life: 0.8, max: 0.8, text: `+${pk.v} КРИСТАЛЛ`, color: "#7cc7ff", size: 13 });
+          this.floats.push({ x: p.x, y: p.y - 34, life: 0.8, max: 0.8, text: `+${pk.v} РУН`, color: "#7cc7ff", size: 13 });
           sfx.crystal();
+        } else if (pk.kind === "pile") {
+          p.crystals += pk.v;
+          this.lostRunes = 0;
+          this.runePileAt = null;
+          this.floats.push({ x: p.x, y: p.y - 38, life: 1.1, max: 1.1, text: `ВОЗВРАЩЕНО ${pk.v} РУН`, color: "#ffd166", size: 16 });
+          this.burst(p.x, p.y - 10, "#ffd166", 18, true);
+          sfx.levelup();
         } else {
           p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.16);
           this.floats.push({ x: p.x, y: p.y - 34, life: 0.8, max: 0.8, text: "+HP", color: "#ff6b8a", size: 15 });
@@ -1617,6 +2119,31 @@ export class Engine {
     // дроп
     for (const pk of this.picks) this.drawPickup(pk);
 
+    // souls-телеграфы зон смерти
+    for (const tg of this.telegraphs) {
+      const f = Math.min(1, tg.t / tg.max);
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = `${tg.color}22`;
+      ctx.beginPath();
+      ctx.arc(tg.x, tg.y, tg.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = tg.color;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.arc(tg.x, tg.y, tg.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // сжимающееся кольцо-таймер
+      ctx.lineWidth = 4;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.beginPath();
+      ctx.arc(tg.x, tg.y, tg.r * (1 - f), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    }
+
     // герои и враги (сортировка по y)
     type Drawable = { y: number; draw: () => void };
     const drawables: Drawable[] = [];
@@ -1636,11 +2163,9 @@ export class Engine {
         y: h.y,
         draw: () => {
           const def = h.def;
-          const lungeX = h.lunge > 0 ? (h.tx - h.x) * h.lunge * 0.5 : 0;
-          const lungeY = h.lunge > 0 ? (h.ty - h.y) * h.lunge * 0.5 : 0;
           drawChibi(ctx, {
-            x: h.x + lungeX, y: h.y + lungeY, scale: 0.95, t: h.t,
-            face: h.tx >= h.x ? 1 : -1, moving: true,
+            x: h.x, y: h.y, scale: 0.95, t: h.t,
+            face: h.tx >= h.x ? 1 : -1, moving: h.lunge > 0,
             attack: h.lunge > 0 ? 1 - h.lunge : -1,
             palette: { hair: def.hair, hairDark: def.hairDark, skin: def.skin, dress: def.dress, accent: def.accent, eyes: def.eyes },
             style: def.style, weapon: def.weapon, glow: def.glow,
@@ -1707,6 +2232,22 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
+    // souls: ретикл захвата цели
+    const lockT = this.lockedEnemy();
+    if (lockT) {
+      const lr = lockT.r + 12 + Math.sin(now * 8) * 2;
+      ctx.strokeStyle = "#ffd166";
+      ctx.lineWidth = 2.4;
+      ctx.globalAlpha = 0.95;
+      for (let i = 0; i < 4; i++) {
+        const a0 = (i / 4) * Math.PI * 2 + now * 1.4;
+        ctx.beginPath();
+        ctx.arc(lockT.x, lockT.y - 6, lr, a0, a0 + 0.7);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // возврат в экранные координаты
     ctx.restore();
 
@@ -1768,6 +2309,29 @@ export class Engine {
     }
 
     ctx.restore();
+
+    // souls: letterbox при появлении босса
+    if (this.banner.t > 0 && this.banner.text === "БОСС") {
+      const bt = Math.min(1, this.banner.t * 1.6);
+      ctx.fillStyle = `rgba(0,0,0,${0.85 * bt})`;
+      const bh = 64 * bt;
+      ctx.fillRect(0, 0, this.W, bh);
+      ctx.fillRect(0, this.H - bh, this.W, bh);
+    }
+
+    // souls: пульсирующая виньетка при низком HP
+    const hpF2 = this.player.hp / this.player.maxHp;
+    if (hpF2 < 0.3 && !this.dead) {
+      const pulse = 0.22 + Math.sin(now * 5) * 0.1;
+      const dg = ctx.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.28, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.66);
+      dg.addColorStop(0, "rgba(120,0,20,0)");
+      dg.addColorStop(1, `rgba(140,0,26,${pulse})`);
+      ctx.fillStyle = dg;
+      ctx.fillRect(0, 0, this.W, this.H);
+    }
+
+    // миникарта (в мире)
+    if (world) this.drawMinimap();
 
     // виньетка
     const vg = ctx.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.36, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.72);
@@ -1846,6 +2410,46 @@ export class Engine {
     ctx.restore();
   }
 
+  // ---------- миникарта ----------
+
+  private drawMinimap() {
+    const ctx = this.ctx;
+    const mw = 176;
+    const mh = Math.round((mw * this.mapH) / this.mapW);
+    const mx0 = this.W - mw - 16;
+    const my0 = 64;
+    const sx = mw / this.mapW;
+    const sy = mh / this.mapH;
+    ctx.save();
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = "rgba(8,4,14,0.82)";
+    ctx.fillRect(mx0 - 3, my0 - 3, mw + 6, mh + 6);
+    ctx.strokeStyle = "rgba(255,209,102,0.55)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(mx0 - 3, my0 - 3, mw + 6, mh + 6);
+    // видимая область
+    ctx.strokeStyle = "rgba(247,236,242,0.25)";
+    ctx.strokeRect(mx0 + this.camX * sx, my0 + this.camY * sy, this.W * sx, this.H * sy);
+    const dot = (x: number, y: number, c: string, r: number) => {
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.arc(mx0 + x * sx, my0 + y * sy, r, 0, Math.PI * 2);
+      ctx.fill();
+    };
+    for (const o of this.wObjs) {
+      const c = o.kind === "portal" ? "#ffd166" : o.kind === "hearth" ? "#ff9f43" : o.kind === "spring" ? "#7bffce" : o.kind === "shrine" ? "#c46bff" : "#8a5a2e";
+      dot(o.x, o.y, c, o.kind === "portal" || o.kind === "hearth" ? 3.4 : 2.4);
+    }
+    for (const e of this.enemies) dot(e.x, e.y, e.type === "boss" ? "#ff2e4d" : "rgba(255,90,60,0.8)", e.type === "boss" ? 4 : 2);
+    for (const h of this.heroines) dot(h.x, h.y, "#ff6b8a", 2.4);
+    dot(this.player.x, this.player.y, "#f7ecf2", 3.2);
+    ctx.font = '9px "Russo One"';
+    ctx.textAlign = "right";
+    ctx.fillStyle = "rgba(255,209,102,0.8)";
+    ctx.fillText(CHAPTERS[this.worldIdx].name, mx0 + mw, my0 - 8);
+    ctx.restore();
+  }
+
   // ---------- отрисовка открытого мира ----------
 
   private drawWorldGround(ch: ChapterDef, now: number) {
@@ -1866,6 +2470,47 @@ export class Engine {
       if (d.x < x0 || d.x > x1 || d.y < y0 || d.y > y1) continue;
       if (d.k === 3) {
         this.drawDeco(d, ch.accent, now);
+        continue;
+      }
+      if (d.k === 4) {
+        // дом: силуэт с крышей и тёплыми окнами
+        ctx.save();
+        ctx.translate(d.x, d.y);
+        ctx.scale(d.s, d.s);
+        ctx.fillStyle = "rgba(16,10,20,0.92)";
+        ctx.fillRect(-34, -46, 68, 52);
+        ctx.beginPath();
+        ctx.moveTo(-40, -46);
+        ctx.lineTo(0, -74);
+        ctx.lineTo(40, -46);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,159,67,0.5)";
+        ctx.fillRect(-22, -34, 9, 11);
+        ctx.fillRect(12, -34, 9, 11);
+        ctx.fillStyle = "rgba(0,0,0,0.85)";
+        ctx.fillRect(-6, -24, 12, 30);
+        ctx.restore();
+        continue;
+      }
+      if (d.k === 5) {
+        // факел
+        ctx.save();
+        ctx.translate(d.x, d.y);
+        ctx.fillStyle = "rgba(30,20,14,0.95)";
+        ctx.fillRect(-2, -26, 4, 26);
+        const fl = 0.6 + Math.sin(now * 9 + d.x) * 0.25;
+        const g = ctx.createRadialGradient(0, -30, 1, 0, -30, 20);
+        g.addColorStop(0, "rgba(255,220,120,0.9)");
+        g.addColorStop(0.5, `rgba(255,140,50,${0.5 * fl})`);
+        g.addColorStop(1, "rgba(255,120,40,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(-22, -52, 44, 44);
+        ctx.fillStyle = "#ffd166";
+        ctx.beginPath();
+        ctx.ellipse(0, -30, 3.4, 5 + fl * 2.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
         continue;
       }
       ctx.save();
@@ -1992,6 +2637,51 @@ export class Engine {
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+    } else if (o.kind === "hearth") {
+      // souls-очаг: костёр из мечей
+      const g = ctx.createRadialGradient(0, -14, 2, 0, -14, 70);
+      g.addColorStop(0, "rgba(255,209,102,0.5)");
+      g.addColorStop(1, "rgba(255,120,40,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(-80, -90, 160, 160);
+      ctx.fillStyle = "rgba(40,24,16,0.95)";
+      for (let i = 0; i < 5; i++) {
+        ctx.save();
+        ctx.rotate((i / 5) * Math.PI * 2 + 0.3);
+        ctx.fillRect(-2, -4, 26, 5);
+        ctx.restore();
+      }
+      ctx.fillStyle = "rgba(70,70,80,0.9)";
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 17, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // меч в центре
+      ctx.strokeStyle = "#cfd6e6";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, -34);
+      ctx.lineTo(0, 0);
+      ctx.moveTo(-6, -26);
+      ctx.lineTo(6, -26);
+      ctx.stroke();
+      // пламя
+      for (let i = 0; i < 3; i++) {
+        const fh = 16 + Math.sin(now * 11 + i * 2.1) * 5;
+        const fx = (i - 1) * 6;
+        ctx.fillStyle = i === 1 ? "rgba(255,230,140,0.95)" : "rgba(255,140,50,0.85)";
+        ctx.beginPath();
+        ctx.moveTo(fx - 5, 0);
+        ctx.quadraticCurveTo(fx - 6, -fh * 0.5, fx, -fh);
+        ctx.quadraticCurveTo(fx + 6, -fh * 0.5, fx + 5, 0);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.font = '11px "Russo One"';
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillText("ОЧАГ", 1, -46);
+      ctx.fillStyle = "#ffd166";
+      ctx.fillText("ОЧАГ", 0, -47);
     } else {
       const used = o.used;
       ctx.fillStyle = used ? "rgba(70,50,40,0.8)" : "#8a5a2e";
@@ -2022,6 +2712,27 @@ export class Engine {
     ctx.save();
     ctx.translate(pk.x, pk.y);
     ctx.scale(pulse, pulse);
+    if (pk.kind === "pile") {
+      // souls: куча потерянных рун
+      const g = ctx.createRadialGradient(0, -6, 2, 0, -6, 26);
+      g.addColorStop(0, "rgba(255,209,102,0.8)");
+      g.addColorStop(1, "rgba(255,209,102,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(-28, -34, 56, 56);
+      ctx.fillStyle = "#ffd166";
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + pk.t * 2;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * 7, -6 + Math.sin(a) * 4, 3.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = "#fff6d8";
+      ctx.beginPath();
+      ctx.arc(0, -6, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
     if (pk.kind === "xp") {
       ctx.fillStyle = "#7dff6a";
       ctx.shadowColor = "#7dff6a";

@@ -1,7 +1,7 @@
-// Машина состояний: меню → заставка → игра → финал.
+// Машина состояний: меню → заставка → игра → финал. Прогресс сохраняется в localStorage.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Engine, type HudSnapshot, type RunStats } from "./game/engine";
+import { Engine, type HudSnapshot, type RunSave, type RunStats } from "./game/engine";
 import { BLESSINGS, GACHA_SINGLE, GACHA_TEN, HEROINES, RARITY_META, type BlessingDef, type UpgradeDef } from "./game/data";
 import { isMuted, setMuted, sfx, startAmbient, unlockAudio } from "./game/audio";
 import { TitleScreen, IntroCinematic } from "./ui/Intro";
@@ -17,29 +17,54 @@ type Overlay =
   | { kind: "gacha"; auto: boolean }
   | { kind: "gameover" };
 
-function loadBest(): { level: number; kills: number } | null {
+interface Meta {
+  bestLevel: number;
+  bestKills: number;
+  totalKills: number;
+  totalSummons: number;
+}
+
+const META_KEY = "rebirth-meta-v2";
+const SAVE_KEY = "rebirth-save-v2";
+
+function loadMeta(): Meta {
   try {
-    const raw = localStorage.getItem("hero-rebirth-best");
-    return raw ? JSON.parse(raw) : null;
+    const raw = localStorage.getItem(META_KEY);
+    if (raw) return { bestLevel: 0, bestKills: 0, totalKills: 0, totalSummons: 0, ...JSON.parse(raw) };
   } catch {
-    return null;
+    /* noop */
   }
+  return { bestLevel: 0, bestKills: 0, totalKills: 0, totalSummons: 0 };
+}
+
+function loadSave(): RunSave | null {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) {
+      const s = JSON.parse(raw) as RunSave;
+      if (s && s.v === 1 && typeof s.level === "number") return s;
+    }
+  } catch {
+    /* noop */
+  }
+  return null;
 }
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("title");
   const [gift, setGift] = useState("blade");
   const [runId, setRunId] = useState(0);
-  const [best, setBest] = useState(loadBest);
+  const [meta, setMeta] = useState<Meta>(loadMeta);
   const [endingStats, setEndingStats] = useState<RunStats | null>(null);
   const [summons, setSummons] = useState(0);
   const [muted, setMutedState] = useState(isMuted());
+  const [resumeSave, setResumeSave] = useState<RunSave | null>(null);
 
-  const saveBest = useCallback((level: number, kills: number) => {
-    setBest((prev) => {
-      const next = !prev || level > prev.level ? { level, kills } : prev;
+  const saveMeta = useCallback((patch: Partial<Meta>) => {
+    setMeta((prev) => {
+      const next = { ...prev, ...patch };
       try {
-        localStorage.setItem("hero-rebirth-best", JSON.stringify(next));
+        localStorage.setItem(META_KEY, JSON.stringify(next));
       } catch {
         /* noop */
       }
@@ -54,16 +79,39 @@ export default function App() {
     if (!m) sfx.ui();
   }, []);
 
+  const clearRunSave = useCallback(() => {
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
   if (phase === "title") {
     return (
       <div className="h-screen w-screen">
         <TitleScreen
-          best={best}
+          best={meta.bestLevel > 0 ? { level: meta.bestLevel, kills: meta.bestKills } : null}
+          hasSave={loadSave() !== null}
+          totalKills={meta.totalKills}
+          totalSummons={meta.totalSummons}
           onStart={() => {
             startAmbient();
+            clearRunSave();
+            setResumeSave(null);
             setRunId((r) => r + 1);
             setSummons(0);
             setPhase("intro");
+          }}
+          onContinue={() => {
+            const s = loadSave();
+            if (!s) return;
+            startAmbient();
+            setGift(s.classId);
+            setResumeSave(s);
+            setRunId((r) => r + 1);
+            setSummons(0);
+            setPhase("game");
           }}
         />
       </div>
@@ -90,10 +138,12 @@ export default function App() {
           stats={endingStats}
           summons={summons}
           onAgain={() => {
+            clearRunSave();
+            setResumeSave(null);
             setRunId((r) => r + 1);
             setSummons(0);
             setEndingStats(null);
-            setPhase("game");
+            setPhase("intro");
           }}
           onMenu={() => {
             setEndingStats(null);
@@ -108,15 +158,38 @@ export default function App() {
     <GameView
       key={runId}
       gift={gift}
+      resumeSave={resumeSave}
       muted={muted}
       onToggleMute={toggleMute}
-      onSummoned={(n: number) => setSummons((s) => s + n)}
+      onSummoned={(n: number) => {
+        setSummons((s) => s + n);
+        saveMeta({ totalSummons: meta.totalSummons + n });
+      }}
       onVictory={(stats) => {
-        saveBest(stats.level, stats.kills);
+        clearRunSave();
+        saveMeta({
+          bestLevel: Math.max(meta.bestLevel, stats.level),
+          bestKills: stats.kills > meta.bestKills && stats.level >= meta.bestLevel ? stats.kills : meta.bestKills,
+          totalKills: meta.totalKills + stats.kills,
+        });
         setEndingStats(stats);
         setPhase("ending");
       }}
-      onDefeat={saveBest}
+      onDefeat={(level, kills) => {
+        saveMeta({
+          bestLevel: Math.max(meta.bestLevel, level),
+          bestKills: kills > meta.bestKills && level >= meta.bestLevel ? kills : meta.bestKills,
+          totalKills: meta.totalKills + kills,
+        });
+      }}
+      onRunSaved={(save) => {
+        try {
+          localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+        } catch {
+          /* noop */
+        }
+      }}
+      onRunInvalidated={clearRunSave}
     />
   );
 }
@@ -125,18 +198,24 @@ export default function App() {
 
 function GameView({
   gift,
+  resumeSave,
   muted,
   onToggleMute,
   onSummoned,
   onVictory,
   onDefeat,
+  onRunSaved,
+  onRunInvalidated,
 }: {
   gift: string;
+  resumeSave: RunSave | null;
   muted: boolean;
   onToggleMute: () => void;
   onSummoned: (n: number) => void;
   onVictory: (s: RunStats) => void;
   onDefeat: (level: number, kills: number) => void;
+  onRunSaved: (save: RunSave) => void;
+  onRunInvalidated: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -153,19 +232,30 @@ function GameView({
     const engine = new Engine(canvas, {
       onLevelUp: (choices) => setOverlay({ kind: "levelup", choices }),
       onChapterEnd: (chapter) => {
-        const q = chapter === 0 ? ["aria"] : ["yuki", "lira"];
-        engine.addCrystals(chapter === 0 ? 40 : 60);
-        setJoinQueue(q);
-        setOverlay({ kind: "join", id: q[0] });
+        // героини присоединяются: Ария — после главы I, Юки — после III, Лира — после IV
+        const q = chapter === 0 ? ["aria"] : chapter === 2 ? ["yuki"] : chapter === 3 ? ["lira"] : [];
+        engine.addCrystals(q.length > 0 ? 40 : 60);
+        if (q.length > 0) {
+          setJoinQueue(q);
+          setOverlay({ kind: "join", id: q[0] });
+        } else {
+          engine.setPaused(true);
+          setOverlay({ kind: "gacha", auto: true });
+        }
       },
-      onVictory: (stats) => onVictory(stats),
+      onVictory: (stats) => {
+        onRunInvalidated();
+        onVictory(stats);
+      },
       onGameOver: () => {
         onDefeat(engine.getStats().level, engine.getStats().kills);
         setOverlay({ kind: "gameover" });
       },
+      onSave: (save) => onRunSaved(save),
     });
     engineRef.current = engine;
-    engine.start(gift);
+    if (resumeSave) engine.loadSave(resumeSave);
+    else engine.start(gift);
     unlockAudio();
     startAmbient();
 
@@ -204,11 +294,6 @@ function GameView({
     setOverlay(null);
   };
 
-  // стабильная ссылка: иначе эффект раскрытия карт в гаче сбрасывается каждые 100 мс
-  const applyBlessing = useCallback((b: BlessingDef) => {
-    engineRef.current?.applyBlessing(b.id);
-  }, []);
-
   const doPull = (count: number): BlessingDef[] | null => {
     const engine = engineRef.current;
     if (!engine) return null;
@@ -228,6 +313,11 @@ function GameView({
     return res;
   };
 
+  // стабильный колбэк: модалка гачи не должна зависеть от ре-рендеров
+  const applyBlessing = useCallback((b: BlessingDef) => {
+    engineRef.current?.applyBlessing(b.id);
+  }, []);
+
   const onJoinDone = () => {
     const rest = queueRef.current.slice(1);
     if (rest.length > 0) {
@@ -241,11 +331,10 @@ function GameView({
 
   const closeGacha = () => {
     const engine = engineRef.current;
+    const wasAuto = (overlayRef.current as Overlay)?.kind === "gacha" && (overlayRef.current as { auto?: boolean }).auto;
     setOverlay(null);
     if (engine) {
-      if ((overlayRef.current as Overlay)?.kind === "gacha" && (overlayRef.current as { auto?: boolean }).auto) {
-        engine.nextChapter();
-      }
+      if (wasAuto) engine.nextChapter();
       engine.setPaused(false);
     }
   };
@@ -280,6 +369,7 @@ function GameView({
           stats={engineRef.current?.getStats() ?? { time: 0, kills: 0, level: 1, crystals: 0 }}
           onResume={resume}
           onRestart={() => {
+            onRunInvalidated();
             engineRef.current?.start(gift);
             setOverlay(null);
           }}
@@ -313,11 +403,13 @@ function GameView({
         <GameOverOverlay
           stats={engineRef.current?.getStats() ?? { time: 0, kills: 0, level: 1, crystals: 0 }}
           crystals={snap?.crystals ?? 0}
+          lostRunes={snap?.lostRunes ?? 0}
           onRevive={() => {
             engineRef.current?.revive();
             setOverlay(null);
           }}
           onRestart={() => {
+            onRunInvalidated();
             engineRef.current?.start(gift);
             setOverlay(null);
           }}

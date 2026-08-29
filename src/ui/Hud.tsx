@@ -1,8 +1,9 @@
-// Боевой HUD: здоровье, опыт, глава, босс, навыки, отряд, комбо.
+// Боевой HUD: здоровье, стамина, фляги, опыт, глава, босс, навыки, отряд, комбо.
 
 import { useEffect, useState } from "react";
 import type { HudSnapshot } from "../game/engine";
-import { IconBlade, IconWing, IconMoon, IconFury, IconGem, IconPause, IconSound, IconHeart } from "./Intro";
+import { CLASSES } from "../game/data";
+import { IconBlade, IconWing, IconMoon, IconFury, IconGem, IconPause, IconSound, IconHeart, IconFlask } from "./Intro";
 
 export function Hud({
   snap,
@@ -19,13 +20,15 @@ export function Hud({
 }) {
   const [showHints, setShowHints] = useState(true);
   useEffect(() => {
-    const t = setTimeout(() => setShowHints(false), 9000);
+    const t = setTimeout(() => setShowHints(false), 10000);
     return () => clearTimeout(t);
   }, []);
 
   if (!snap) return null;
   const hpF = Math.max(0, snap.hp / snap.maxHp);
   const xpF = Math.min(1, snap.xp / snap.xpNeed);
+  const stF = Math.max(0, snap.st / snap.stMax);
+  const cls = CLASSES.find((c) => c.id === snap.classId);
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20 select-none">
@@ -43,7 +46,9 @@ export function Hud({
         </div>
         <div className="w-56 md:w-64">
           <div className="mb-1 flex items-end justify-between">
-            <span className="font-display text-sm text-[#f7ecf2]">КАЙ · ГЕРОЙ</span>
+            <span className="font-display text-sm text-[#f7ecf2]">
+              КАЙ{cls ? <span className="ml-1.5 text-[10px] tracking-wider" style={{ color: cls.color }}>· {cls.name.toUpperCase()}</span> : null}
+            </span>
             <span className="font-display rounded-sm bg-[#ff2e4d] px-2 py-0.5 text-xs text-white shadow-[0_0_12px_rgba(255,46,77,0.6)]">
               УР. {snap.level}
             </span>
@@ -61,30 +66,41 @@ export function Hud({
               {snap.hp} / {snap.maxHp}
             </div>
           </div>
-          <div className="bar-shell clip-btn relative mt-1.5 h-2.5 overflow-hidden">
+          {/* souls: стамина */}
+          <div className="bar-shell clip-btn relative mt-1 h-2.5 overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 transition-[width] duration-150"
+              style={{
+                width: `${stF * 100}%`,
+                background: stF < 0.25 ? "linear-gradient(90deg,#5c3a10,#8f6a20)" : "linear-gradient(90deg,#1f6e3c,#3ddc84)",
+                boxShadow: stF < 0.25 ? "none" : "0 0 8px rgba(61,220,132,0.5)",
+              }}
+            />
+          </div>
+          <div className="bar-shell clip-btn relative mt-1 h-2 overflow-hidden">
             <div
               className="absolute inset-y-0 left-0 transition-[width] duration-200"
               style={{ width: `${xpF * 100}%`, background: "linear-gradient(90deg,#0e7d6c,#35f0d0)", boxShadow: "0 0 10px rgba(53,240,208,0.6)" }}
             />
           </div>
-          <div className="mt-0.5 text-right text-[10px] font-semibold text-[#a98fb8]">
-            ОПЫТ {snap.xp}/{snap.xpNeed}
+          <div className="mt-0.5 flex items-center justify-between">
+            <span className="flex items-center gap-1">
+              {/* souls: фляги */}
+              {Array.from({ length: Math.min(8, snap.flaskMax) }, (_, i) => (
+                <IconFlask key={i} size={11} color={i < snap.flask ? "#ffd166" : "rgba(255,255,255,0.18)"} />
+              ))}
+              <span className="font-display ml-0.5 text-[10px] text-[#ffd166]">F</span>
+            </span>
+            <span className="text-[10px] font-semibold text-[#a98fb8]">
+              ОПЫТ {snap.xp}/{snap.xpNeed}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* ===== верх центр: глава / босс / мир ===== */}
-      <div className="absolute top-4 left-1/2 w-[min(560px,60vw)] -translate-x-1/2 text-center">
-        {snap.mode === "world" ? (
-          <div>
-            <div className="font-display text-sm tracking-[0.25em] text-[#35f0d0]" style={{ textShadow: "0 0 12px rgba(53,240,208,0.6)" }}>
-              ОТКРЫТЫЙ МИР · {snap.zone.toUpperCase()}
-            </div>
-            <div className="hud-chip clip-btn mx-auto mt-1.5 inline-block px-4 py-1 text-[11px] font-bold tracking-wider text-[#ffd166]">
-              {snap.hint || "Исследуй мир"}
-            </div>
-          </div>
-        ) : snap.boss ? (
+      {/* ===== верх центр: зона ===== */}
+      <div className="absolute top-4 left-1/2 w-[min(560px,52vw)] -translate-x-1/2 text-center">
+        {snap.boss ? (
           <div>
             <div className="font-display mb-1 text-sm tracking-widest text-[#ff2e4d]" style={{ textShadow: "0 0 12px rgba(255,46,77,0.8)" }}>
               ☠ {snap.boss.name} ☠
@@ -98,6 +114,13 @@ export function Hud({
                   boxShadow: "0 0 16px rgba(255,46,77,0.8)",
                 }}
               />
+            </div>
+          </div>
+        ) : snap.mode === "world" ? (
+          <div>
+            <div className="font-display text-sm tracking-[0.25em] text-[#ffd166]">{snap.chapterName}</div>
+            <div className="mt-1 text-[10px] font-bold tracking-[0.3em] text-[#a98fb8]">
+              ОТКРЫТЫЙ МИР{snap.locked ? " · ЦЕЛЬ ЗАХВАЧЕНА" : ""}
             </div>
           </div>
         ) : (
@@ -129,12 +152,13 @@ export function Hud({
         <div className="hud-chip clip-btn flex items-center gap-2 px-3 py-2">
           <IconGem size={16} color="#7cc7ff" />
           <span className="font-display text-sm text-[#7cc7ff]">{snap.crystals}</span>
+          <span className="text-[9px] font-bold tracking-widest text-[#7cc7ff]/70">РУНЫ</span>
         </div>
         <div className="hud-chip clip-btn hidden items-center gap-2 px-3 py-2 sm:flex">
           <IconBlade size={15} color="#ff9f43" />
           <span className="font-display text-sm text-[#ff9f43]">{snap.kills}</span>
         </div>
-        <button onClick={onSummon} className="btn-blade clip-btn flex items-center gap-2 px-4 py-2 text-sm" title="Гача-призыв (кристаллы)">
+        <button onClick={onSummon} className="btn-blade clip-btn flex items-center gap-2 px-4 py-2 text-sm" title="Гача-призыв (руны)">
           <IconGem size={15} color="#fff" /> ПРИЗЫВ
         </button>
         <button onClick={onPause} className="btn-ghost clip-btn flex h-9 w-9 items-center justify-center">
@@ -174,7 +198,7 @@ export function Hud({
         <SkillBox label="SPACE" name="Рывок" cd={snap.dashCd} max={snap.dashMax} iconColor="#ffd166">
           <IconWing size={20} color="#ffd166" />
         </SkillBox>
-        <SkillBox label="Q" name="Волна" cd={snap.waveCd} max={snap.waveMax} iconColor="#35f0d0">
+        <SkillBox label="Q" name={snap.classId === "frost" ? "Мороз" : snap.classId === "arrow" ? "Стрелы" : "Волна"} cd={snap.waveCd} max={snap.waveMax} iconColor="#35f0d0">
           <IconMoon size={20} color="#35f0d0" />
         </SkillBox>
         <SkillBox label="E" name="Ярость" ult={snap.ult} iconColor={snap.ult >= 100 ? "#ffd166" : "#a98fb8"}>
@@ -192,13 +216,31 @@ export function Hud({
         </div>
       )}
 
-      {/* ===== подсказки ===== */}
-      {showHints && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 transition-opacity duration-1000" style={{ opacity: showHints ? 0.9 : 0 }}>
+      {/* ===== потерянные руны ===== */}
+      {snap.lostRunes > 0 && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2">
+          <div className="hud-chip clip-btn anim-pulse-gold px-4 py-1.5 text-xs font-bold text-[#ffd166]">
+            ПОТЕРЯНО {snap.lostRunes} РУН — ВЕРНИСЬ ЗА НИМИ!
+          </div>
+        </div>
+      )}
+
+      {/* ===== подсказка мира ===== */}
+      {snap.mode === "world" && snap.hint && (
+        <div className="absolute bottom-7 left-1/2 -translate-x-1/2">
           <div className="hud-chip clip-btn px-5 py-2 text-xs text-[#cbb8d8]">
-            <b className="font-display text-[#ffd166]">WASD</b> бег · <b className="font-display text-[#ffd166]">ЛКМ</b> комбо-удары ·{" "}
-            <b className="font-display text-[#ffd166]">SPACE</b> рывок (неуязвимость) · <b className="font-display text-[#ffd166]">Q</b> волна ·{" "}
-            <b className="font-display text-[#ffd166]">E</b> ярость
+            <span className="font-display text-[#ffd166]">{snap.hint}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ===== подсказки управления ===== */}
+      {showHints && snap.mode === "battle" && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
+          <div className="hud-chip clip-btn px-5 py-2 text-xs text-[#cbb8d8]">
+            <b className="font-display text-[#ffd166]">WASD</b> бег · <b className="font-display text-[#ffd166]">ЛКМ</b> комбо ·{" "}
+            <b className="font-display text-[#ffd166]">SPACE</b> рывок · <b className="font-display text-[#ffd166]">Q</b> навык ·{" "}
+            <b className="font-display text-[#ffd166]">F</b> фляга · <b className="font-display text-[#ffd166]">TAB</b> захват
           </div>
         </div>
       )}
