@@ -1,0 +1,187 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0b0512;
+  --bg2: #150a21;
+  --blood: #ff2e4d;
+  --blood-dark: #b3122e;
+  --ember: #ff9f43;
+  --gold: #ffd166;
+  --magic: #35f0d0;
+  --ice: #7cc7ff;
+  --ink: #f7ecf2;
+  --dim: #a98fb8;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: "Rubik", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.font-display {
+  font-family: "Russo One", "Rubik", sans-serif;
+}
+
+/* ---------- game UI primitives ---------- */
+
+.clip-panel {
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+
+.clip-btn {
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+
+.panel-dark {
+  background: linear-gradient(160deg, rgba(30, 15, 44, 0.92), rgba(13, 6, 22, 0.94));
+  border: 1px solid rgba(255, 209, 102, 0.28);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.btn-blade {
+  font-family: "Russo One", sans-serif;
+  letter-spacing: 0.06em;
+  color: #fff;
+  background: linear-gradient(100deg, #ff2e4d 0%, #c81838 55%, #8f0f28 100%);
+  border: 1px solid rgba(255, 209, 102, 0.65);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 18px rgba(255, 46, 77, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  cursor: pointer;
+  user-select: none;
+}
+.btn-blade:hover {
+  transform: translateY(-2px) scale(1.03);
+  filter: brightness(1.15);
+  box-shadow: 0 0 30px rgba(255, 46, 77, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.btn-blade:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.btn-ghost {
+  font-family: "Russo One", sans-serif;
+  letter-spacing: 0.05em;
+  color: var(--gold);
+  background: rgba(255, 209, 102, 0.06);
+  border: 1px solid rgba(255, 209, 102, 0.4);
+  transition: all 0.12s ease;
+  cursor: pointer;
+  user-select: none;
+}
+.btn-ghost:hover {
+  background: rgba(255, 209, 102, 0.16);
+  box-shadow: 0 0 18px rgba(255, 209, 102, 0.25);
+  transform: translateY(-1px);
+}
+.btn-ghost:active {
+  transform: translateY(1px);
+}
+
+.bar-shell {
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+
+.title-glow {
+  color: var(--gold);
+  text-shadow:
+    0 0 14px rgba(255, 209, 102, 0.55),
+    0 0 44px rgba(255, 46, 77, 0.55),
+    0 4px 0 #5c0a1c,
+    0 8px 24px rgba(0, 0, 0, 0.8);
+}
+
+.hud-chip {
+  background: linear-gradient(160deg, rgba(24, 12, 38, 0.88), rgba(10, 5, 18, 0.9));
+  border: 1px solid rgba(255, 209, 102, 0.25);
+}
+
+/* ---------- animation ---------- */
+
+@keyframes popIn {
+  0% { transform: scale(0.7) translateY(14px); opacity: 0; }
+  60% { transform: scale(1.05) translateY(-2px); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.anim-pop { animation: popIn 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+
+@keyframes slideUp {
+  from { transform: translateY(26px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.anim-rise { animation: slideUp 0.4s cubic-bezier(0.2, 1, 0.3, 1) both; }
+
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+.anim-float { animation: floaty 3.2s ease-in-out infinite; }
+
+@keyframes pulseGold {
+  0%, 100% { box-shadow: 0 0 12px rgba(255, 209, 102, 0.25); }
+  50% { box-shadow: 0 0 30px rgba(255, 209, 102, 0.6); }
+}
+.anim-pulse-gold { animation: pulseGold 1.6s ease-in-out infinite; }
+
+@keyframes comboPop {
+  0% { transform: scale(1.6) rotate(-4deg); }
+  100% { transform: scale(1) rotate(-4deg); }
+}
+.anim-combo { animation: comboPop 0.18s ease-out both; }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer-text {
+  background: linear-gradient(100deg, #ffd166 30%, #fff6d8 50%, #ffd166 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+
+@keyframes blinkCursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.type-cursor::after {
+  content: "▍";
+  color: var(--magic);
+  animation: blinkCursor 0.8s infinite;
+}
+
+@keyframes shakeX {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.anim-shake { animation: shakeX 0.3s ease-in-out; }
+
+@keyframes heartBeat {
+  0%, 100% { transform: scale(1); }
+  14% { transform: scale(1.3); }
+  28% { transform: scale(1); }
+  42% { transform: scale(1.25); }
+}
+.anim-heart { animation: heartBeat 1.4s ease-in-out infinite; transform-origin: center; }
+
+@keyframes cardReveal {
+  0% { transform: rotateY(90deg) scale(0.6); opacity: 0; }
+  100% { transform: rotateY(0) scale(1); opacity: 1; }
+}
+.anim-card { animation: cardReveal 0.45s cubic-bezier(0.2, 1.2, 0.3, 1) both; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.4); }
+::-webkit-scrollbar-thumb { background: rgba(255, 209, 102, 0.3); border-radius: 4px; }
