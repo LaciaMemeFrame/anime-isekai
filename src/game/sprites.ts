@@ -94,6 +94,14 @@ export function drawChibi(ctx: CanvasRenderingContext2D, o: ChibiOpts) {
   ctx.quadraticCurveTo(11 * s, bodyY + 12 * s, 9 * s, bodyY - 4 * s);
   ctx.closePath();
   ctx.fill();
+  ctx.strokeStyle = "rgba(22,8,18,0.55)";
+  ctx.lineWidth = 1.2 * s;
+  ctx.stroke();
+  // блик на плече
+  ctx.fillStyle = "rgba(255,255,255,0.16)";
+  ctx.beginPath();
+  ctx.ellipse(-4 * s, bodyY - 1 * s, 4 * s, 2 * s, -0.4, 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = p.accent;
   ctx.fillRect(-9 * s, bodyY + 2 * s, 18 * s, 2.4 * s);
   // ножки
@@ -168,6 +176,14 @@ export function drawChibi(ctx: CanvasRenderingContext2D, o: ChibiOpts) {
   ctx.fillStyle = p.skin;
   ctx.beginPath();
   ctx.ellipse(1 * s, hy + 1.5 * s, 9.2 * s, 9.6 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(60,25,35,0.4)";
+  ctx.lineWidth = 1 * s;
+  ctx.stroke();
+  // тень под чёлкой
+  ctx.fillStyle = "rgba(120,60,70,0.18)";
+  ctx.beginPath();
+  ctx.ellipse(1 * s, hy - 2.5 * s, 8.4 * s, 3 * s, 0, 0, Math.PI * 2);
   ctx.fill();
   // глаза
   for (const ex of [2.2, 8]) {
@@ -287,6 +303,7 @@ export function drawDemon(
     maxHp: number;
     boss?: boolean;
     enraged?: boolean;
+    elite?: boolean;
   }
 ) {
   const s = (o.scale ?? 1) * (o.boss ? 2.7 : 1);
@@ -336,6 +353,15 @@ export function drawDemon(
   ctx.beginPath();
   ctx.ellipse(0, -4 * s + hop, 12 * s, 13 * s, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = "rgba(10,4,10,0.6)";
+  ctx.lineWidth = 1.4 * s;
+  ctx.stroke();
+  // контровой свет (rim light)
+  ctx.strokeStyle = "rgba(255,120,80,0.35)";
+  ctx.lineWidth = 1.6 * s;
+  ctx.beginPath();
+  ctx.ellipse(0, -4 * s + hop, 12 * s, 13 * s, 0, Math.PI * 1.1, Math.PI * 1.9);
+  ctx.stroke();
 
   // рога
   ctx.fillStyle = c.horn;
@@ -553,6 +579,19 @@ export function drawDemon(
     ctx.beginPath();
     ctx.arc(0, -4 * s, 24 * s, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // золотые рога элиты
+  if (o.elite) {
+    ctx.fillStyle = "#ffd166";
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(dir * 5 * s, -13 * s + hop);
+      ctx.quadraticCurveTo(dir * 12 * s, -20 * s + hop, dir * 10 * s, -25 * s + hop);
+      ctx.quadraticCurveTo(dir * 8 * s, -16 * s + hop, dir * 2.5 * s, -13 * s + hop);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   // вспышка урона

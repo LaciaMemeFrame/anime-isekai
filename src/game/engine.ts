@@ -84,6 +84,7 @@ interface Enemy {
   enraged: boolean;
   xp: number;
   cry: [number, number];
+  elite?: boolean;
 }
 
 interface Proj {
@@ -887,19 +888,38 @@ export class Engine {
     sfx.join();
   }
 
-  private spawnEnemyAt(type: Exclude<EnemyType, "boss">, x: number, y: number, tier: number) {
+  private makeEnemy(
+    type: Exclude<EnemyType, "boss">,
+    x: number,
+    y: number,
+    mul: number,
+    spdMul: number,
+    dmgMul: number,
+    eliteChance: number
+  ): Enemy {
     const base = ENEMY_BASE[type];
-    const mul = 1 + tier * 0.5;
-    this.enemies.push({
-      id: this.nextId++,
-      type,
-      x, y, vx: 0, vy: 0,
+    const e: Enemy = {
+      id: this.nextId++, type, x, y, vx: 0, vy: 0,
       hp: base.hp * mul, maxHp: base.hp * mul,
-      r: base.r, speed: base.speed * (1 + tier * 0.08), dmg: base.dmg * (1 + tier * 0.35),
+      r: base.r, speed: base.speed * spdMul, dmg: base.dmg * dmgMul,
       face: 1, t: Math.random() * 10, flash: 0, touchCd: 0,
       state: "idle", stateT: 0, shootCd: 1 + Math.random(),
       enraged: false, xp: base.xp, cry: base.cry,
-    });
+    };
+    // souls: элитный демон — крупнее, живучее, больнее, щедрее на руны
+    if (Math.random() < eliteChance) {
+      e.elite = true;
+      e.hp = e.maxHp = base.hp * mul * 2.4;
+      e.dmg = base.dmg * dmgMul * 1.5;
+      e.r += 5;
+      e.xp = Math.round(base.xp * 2);
+      e.cry = [base.cry[0] * 2, base.cry[1] * 2 + 2];
+    }
+    return e;
+  }
+
+  private spawnEnemyAt(type: Exclude<EnemyType, "boss">, x: number, y: number, tier: number) {
+    this.enemies.push(this.makeEnemy(type, x, y, 1 + tier * 0.5, 1 + tier * 0.08, 1 + tier * 0.35, 0.1 + tier * 0.06));
   }
 
   private updateWorld(dt: number) {
@@ -1629,19 +1649,9 @@ export class Engine {
 
   private spawnEnemy(type: Exclude<EnemyType, "boss">) {
     const ch = this.chapterIdx;
-    const base = ENEMY_BASE[type];
     const mul = (1 + ch * 0.5) * (1 + Math.max(0, this.waveIdx) * 0.05);
     const pos = this.edgePos();
-    this.enemies.push({
-      id: this.nextId++,
-      type,
-      x: pos.x, y: pos.y, vx: 0, vy: 0,
-      hp: base.hp * mul, maxHp: base.hp * mul,
-      r: base.r, speed: base.speed * (1 + ch * 0.08), dmg: base.dmg * (1 + ch * 0.35),
-      face: 1, t: Math.random() * 10, flash: 0, touchCd: 0,
-      state: "idle", stateT: 0, shootCd: 1 + Math.random(),
-      enraged: false, xp: base.xp, cry: base.cry,
-    });
+    this.enemies.push(this.makeEnemy(type, pos.x, pos.y, mul, 1 + ch * 0.08, 1 + ch * 0.35, 0.12 + ch * 0.07));
   }
 
   private spawnBoss() {
@@ -1652,10 +1662,10 @@ export class Engine {
       type: "boss",
       kind: b.kind,
       x: this.W / 2, y: 170, vx: 0, vy: 0,
-      hp: b.hp, maxHp: b.hp, r: 40, speed: 70, dmg: 22 + this.chapterIdx * 6,
+      hp: b.hp, maxHp: b.hp, r: 40, speed: 82 + this.chapterIdx * 5, dmg: 26 + this.chapterIdx * 7,
       face: 1, t: 0, flash: 0, touchCd: 0,
       state: "enter", stateT: 1.4, shootCd: 2,
-      enraged: false, xp: 80, cry: [40, 60],
+      enraged: false, xp: 100, cry: [50, 75],
     };
     this.enemies.push(this.boss);
     this.banner = { text: "БОСС", sub: `${b.title} · ${b.name}`, t: 2.4 };
@@ -2101,6 +2111,9 @@ export class Engine {
       ctx.fillRect(-20, this.H * 0.18, this.W + 40, this.H);
     }
 
+    // параллакс-горы (экранные координаты, медленнее камеры)
+    if (world) this.drawParallax(ch, now);
+
     // мировые координаты (в бою камера = 0)
     ctx.save();
     ctx.translate(-this.camX, -this.camY);
@@ -2150,12 +2163,29 @@ export class Engine {
     for (const e of this.enemies) {
       drawables.push({
         y: e.y,
-        draw: () =>
+        draw: () => {
+          // элитная аура
+          if (e.elite) {
+            const pulse = 0.5 + Math.sin(e.t * 6) * 0.2;
+            const g = ctx.createRadialGradient(e.x, e.y - 6, 4, e.x, e.y - 6, e.r + 22);
+            g.addColorStop(0, `rgba(255,209,102,${0.35 * pulse})`);
+            g.addColorStop(1, "rgba(255,209,102,0)");
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(e.x, e.y - 6, e.r + 22, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = `rgba(255,209,102,${0.6 * pulse})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(e.x, e.y - 6, e.r + 8 + Math.sin(e.t * 5) * 2, 0, Math.PI * 2);
+            ctx.stroke();
+          }
           drawDemon(ctx, {
             x: e.x, y: e.y, type: e.type === "boss" ? (e.kind ?? "demon") : e.type,
             t: e.t, face: e.face, flash: e.flash, hp: e.hp, maxHp: e.maxHp,
-            boss: e.type === "boss", enraged: e.enraged, scale: e.type === "brute" ? 1.25 : 1,
-          }),
+            boss: e.type === "boss", enraged: e.enraged, elite: e.elite, scale: e.type === "brute" ? 1.25 : e.elite ? 1.3 : 1,
+          });
+        },
       });
     }
     for (const h of this.heroines) {
@@ -2187,6 +2217,9 @@ export class Engine {
     }
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
+
+    // тёплый свет вокруг героя
+    this.drawPlayerLight();
 
     // снаряды
     for (const pr of this.projs) this.drawProj(pr);
@@ -2250,6 +2283,9 @@ export class Engine {
 
     // возврат в экранные координаты
     ctx.restore();
+
+    // манга-спидлайны при рывке/ульте
+    this.drawSpeedLines();
 
     // стрелка к вратам в открытом мире
     if (world && !this.dead) {
@@ -2408,6 +2444,81 @@ export class Engine {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  // ---------- параллакс-горы ----------
+
+  private drawParallax(ch: ChapterDef, now: number) {
+    const ctx = this.ctx;
+    // дальний слой (медленный)
+    const layers = [
+      { f: 0.18, yBase: 0.34, amp: 0.1, color: "rgba(20,10,28,0.55)", seed: 3 },
+      { f: 0.35, yBase: 0.44, amp: 0.14, color: "rgba(30,14,38,0.6)", seed: 7 },
+    ];
+    for (const L of layers) {
+      const off = -this.camX * L.f;
+      ctx.fillStyle = L.color;
+      ctx.beginPath();
+      ctx.moveTo(-40, this.H);
+      const step = 90;
+      for (let x = -step; x <= this.W + step; x += step) {
+        const wx = x - (off % step);
+        const n = Math.sin((wx + this.camX * L.f) * 0.008 + L.seed) + Math.sin((wx + this.camX * L.f) * 0.021 + L.seed * 2);
+        const y = this.H * L.yBase + n * this.H * L.amp;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(this.W + 40, this.H);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // туман
+    const fogY = this.H * 0.55 + Math.sin(now * 0.4) * 8;
+    const fg = ctx.createLinearGradient(0, fogY - 40, 0, fogY + 90);
+    fg.addColorStop(0, "rgba(120,90,140,0)");
+    fg.addColorStop(0.5, "rgba(120,90,140,0.12)");
+    fg.addColorStop(1, "rgba(120,90,140,0)");
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, fogY - 40, this.W, 130);
+  }
+
+  // ---------- свет вокруг героя ----------
+
+  private drawPlayerLight() {
+    const ctx = this.ctx;
+    const p = this.player;
+    ctx.globalCompositeOperation = "lighter";
+    const g = ctx.createRadialGradient(p.x, p.y - 10, 6, p.x, p.y - 10, 90);
+    g.addColorStop(0, "rgba(255,220,150,0.16)");
+    g.addColorStop(1, "rgba(255,220,150,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y - 10, 90, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // ---------- спидлайны при рывке/ульте ----------
+
+  private drawSpeedLines() {
+    const ctx = this.ctx;
+    const p = this.player;
+    if (p.dashT <= 0 && p.ultT <= 0) return;
+    ctx.save();
+    ctx.translate(p.x - this.camX, p.y - this.camY);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.strokeStyle = p.ultT > 0 ? "rgba(255,209,102,0.3)" : "rgba(255,255,255,0.22)";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + Math.random() * 0.3;
+      const r0 = 60 + Math.random() * 60;
+      const r1 = r0 + 90 + Math.random() * 120;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0);
+      ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.globalCompositeOperation = "source-over";
   }
 
   // ---------- миникарта ----------

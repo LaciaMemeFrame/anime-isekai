@@ -4,6 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { drawChibi, drawGoddess } from "../game/sprites";
 import { CLASSES } from "../game/data";
 import { sfx, unlockAudio, isMuted, setMuted } from "../game/audio";
+import { unlockMusic } from "../game/music";
+
+// ---------- аниме key-art (сгенерированные фоны) ----------
+export const ART = {
+  landscape: "https://image.qwenlm.ai/generated-images/31ac0ede-4285-4756-903d-69a61ce49b00/_result.png",
+  goddess: "https://image.qwenlm.ai/generated-images/3c2540c4-f68d-4ce8-a59c-ed084de7e10e/_result.png",
+  hero: "https://image.qwenlm.ai/generated-images/605232c2-4880-429c-95d4-f564eaffd7a3/_result.png",
+};
 
 // ---------- общие SVG-иконки ----------
 
@@ -161,7 +169,8 @@ export function TitleScreen({
   const [muted, setM] = useState(isMuted());
 
   useEffect(() => {
-    const canvas = canvasRef.current!;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
     let raf = 0;
     const resize = () => {
@@ -287,16 +296,35 @@ export function TitleScreen({
 
   return (
     <div className="relative h-full w-full overflow-hidden select-none">
-      <canvas ref={canvasRef} className="absolute inset-0" />
+      {/* аниме key-art фон (Ken Burns) */}
+      <div className="anime-bg" style={{ backgroundImage: `url(${ART.landscape})` }} />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#07030d]/70 via-[#07030d]/30 to-[#07030d]/85" />
+      <div className="stripe-overlay" />
+      <div className="speed-lines" />
+      <div className="kanji-mark right-4 top-1/2 -translate-y-1/2 text-[11rem]">転生英雄</div>
+
+      {/* парящая богиня справа */}
+      <div className="pointer-events-none absolute right-[2%] bottom-0 z-[5] hidden h-[82%] lg:block">
+        <img
+          src={ART.goddess}
+          alt=""
+          className="float-slow glow-pulse h-full w-auto object-contain object-bottom drop-shadow-[0_0_40px_rgba(255,209,102,0.35)]"
+          style={{ maskImage: "linear-gradient(to top, transparent 0%, black 12%)", WebkitMaskImage: "linear-gradient(to top, transparent 0%, black 12%)" }}
+        />
+      </div>
+
       <div className="relative z-10 flex h-full flex-col items-center justify-center px-6">
         <div className="anim-rise text-center">
-          <div className="font-display mb-3 text-sm tracking-[0.5em] text-[#ff9f43]">ИЗ МЕРТВЫХ — К ЛЕГЕНДЕ</div>
-          <h1 className="font-display title-glow text-5xl leading-[1.04] md:text-7xl">
+          <div className="font-display mb-3 inline-block -skew-x-12 border border-[#ff9f43]/50 bg-[#3a0f18]/60 px-4 py-1 text-sm tracking-[0.5em] text-[#ff9f43]">
+            ИЗ МЕРТВЫХ — К ЛЕГЕНДЕ
+          </div>
+          <h1 className="anime-title font-display mt-4 text-6xl leading-[1.02] md:text-8xl">
             ПЕРЕРОЖДЕНИЕ
             <br />
-            ГЕРОЯ
+            <span className="text-[#ffd166]">ГЕРОЯ</span>
           </h1>
-          <div className="font-display mt-3 text-lg tracking-[0.3em] text-[#f7ecf2]/85 md:text-xl">
+          <div className="mx-auto mt-4 h-1 w-56 -skew-x-12 bg-gradient-to-r from-transparent via-[#ff2e4d] to-transparent" />
+          <div className="font-display mt-3 text-lg tracking-[0.35em] text-[#f7ecf2]/90 md:text-xl">
             ✦ КЛИНОК БОГИНИ ✦
           </div>
         </div>
@@ -304,25 +332,27 @@ export function TitleScreen({
         <div className="anim-rise mt-10 flex flex-col items-center gap-4" style={{ animationDelay: "0.15s" }}>
           {hasSave && (
             <button
-              className="btn-blade clip-btn px-14 py-4 text-2xl anim-pulse-gold"
+              className="skew-btn gold px-16 py-4 text-2xl"
               onClick={() => {
                 unlockAudio();
+                unlockMusic();
                 sfx.ui();
                 onContinue?.();
               }}
             >
-              ПРОДОЛЖИТЬ ПУТЬ
+              Продолжить путь
             </button>
           )}
           <button
-            className={`${hasSave ? "btn-ghost clip-btn px-10 py-3 text-lg" : "btn-blade clip-btn px-14 py-4 text-2xl anim-pulse-gold"}`}
+            className={`${hasSave ? "skew-btn ghost px-12 py-3 text-lg" : "skew-btn px-16 py-4 text-2xl"}`}
             onClick={() => {
               unlockAudio();
+              unlockMusic();
               sfx.ui();
               onStart();
             }}
           >
-            {hasSave ? "НОВАЯ ИГРА" : "НАЧАТЬ ПУТЬ"}
+            {hasSave ? "Новая игра" : "Начать путь"}
           </button>
           <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-semibold text-[#a98fb8]">
             <span className="hud-chip clip-btn px-3 py-1.5 text-[#ff2e4d]">SOULS-LIKE</span>
@@ -680,8 +710,9 @@ export function IntroCinematic({ onDone }: { onDone: (gift: string) => void }) {
   return (
     <div className="relative h-full w-full overflow-hidden select-none bg-[#07030d]">
       <canvas ref={canvasRef} className="absolute inset-0" />
+      <div className="stripe-overlay" />
 
-      <div className="absolute top-5 left-6 z-20 font-display text-sm tracking-[0.4em] text-[#a98fb8]">
+      <div className="absolute top-5 left-6 z-20 -skew-x-12 border border-[#ff9f43]/40 bg-[#07030d]/70 px-4 py-1.5 font-display text-sm tracking-[0.4em] text-[#ff9f43]">
         ПРОЛОГ · СМЕРТЬ КАЯ
       </div>
       <button onClick={skip} className="btn-ghost clip-btn absolute top-5 right-6 z-20 px-5 py-2 text-sm">
@@ -712,14 +743,17 @@ export function IntroCinematic({ onDone }: { onDone: (gift: string) => void }) {
       )}
 
       {choosing && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/40 px-4">
-          <div className="anim-pop text-center">
-            <div className="font-display text-2xl text-[#ffd166] md:text-3xl">ВЫБЕРИ СВОЙ ПУТЬ</div>
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center px-4">
+          <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${ART.hero})` }} />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#07030d]/80 via-[#07030d]/70 to-[#07030d]/90" />
+          <div className="stripe-overlay" />
+          <div className="anim-pop relative z-10 text-center">
+            <div className="font-display text-3xl text-[#ffd166] md:text-4xl anime-title">ВЫБЕРИ СВОЙ ПУТЬ</div>
             <p className="mt-2 max-w-xl text-sm text-[#cbb8d8]">
               С чем ты вступишь в Элирию? Класс определит твою магию и стиль боя.
             </p>
           </div>
-          <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-3">
+          <div className="relative z-10 mt-8 grid grid-cols-1 gap-5 md:grid-cols-3">
             {CLASSES.map((g, i) => {
               const Ic = g.icon === "blade" ? IconBlade : g.icon === "star" ? IconStar : IconWing;
               const active = hoverGift === g.id;
