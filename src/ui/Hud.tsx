@@ -73,9 +73,18 @@ export function Hud({
         </div>
       </div>
 
-      {/* ===== верх центр: глава / босс ===== */}
+      {/* ===== верх центр: глава / босс / мир ===== */}
       <div className="absolute top-4 left-1/2 w-[min(560px,60vw)] -translate-x-1/2 text-center">
-        {snap.boss ? (
+        {snap.mode === "world" ? (
+          <div>
+            <div className="font-display text-sm tracking-[0.25em] text-[#35f0d0]" style={{ textShadow: "0 0 12px rgba(53,240,208,0.6)" }}>
+              ОТКРЫТЫЙ МИР · {snap.zone.toUpperCase()}
+            </div>
+            <div className="hud-chip clip-btn mx-auto mt-1.5 inline-block px-4 py-1 text-[11px] font-bold tracking-wider text-[#ffd166]">
+              {snap.hint || "Исследуй мир"}
+            </div>
+          </div>
+        ) : snap.boss ? (
           <div>
             <div className="font-display mb-1 text-sm tracking-widest text-[#ff2e4d]" style={{ textShadow: "0 0 12px rgba(255,46,77,0.8)" }}>
               ☠ {snap.boss.name} ☠

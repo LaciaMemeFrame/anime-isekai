@@ -204,6 +204,11 @@ function GameView({
     setOverlay(null);
   };
 
+  // стабильная ссылка: иначе эффект раскрытия карт в гаче сбрасывается каждые 100 мс
+  const applyBlessing = useCallback((b: BlessingDef) => {
+    engineRef.current?.applyBlessing(b.id);
+  }, []);
+
   const doPull = (count: number): BlessingDef[] | null => {
     const engine = engineRef.current;
     if (!engine) return null;
@@ -293,13 +298,13 @@ function GameView({
         />
       )}
 
-      {overlay?.kind === "join" && <JoinScene def={heroinesById(overlay.id)} onDone={onJoinDone} />}
+      {overlay?.kind === "join" && <JoinScene key={overlay.id} def={heroinesById(overlay.id)} onDone={onJoinDone} />}
 
       {overlay?.kind === "gacha" && (
         <GachaModal
           crystals={snap?.crystals ?? 0}
           onPull={doPull}
-          onApply={(b) => engineRef.current?.applyBlessing(b.id)}
+          onApply={applyBlessing}
           onClose={closeGacha}
         />
       )}
