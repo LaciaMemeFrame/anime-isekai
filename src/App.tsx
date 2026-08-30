@@ -169,6 +169,7 @@ export default function App() {
           }}
         />
         {netOpen && <NetworkModal onClose={() => setNetOpen(false)} onReady={handleNetReady} />}
+        {netLost && <NetLostOverlay reason={netLost} onLeave={leaveNet} />}
       </div>
     );
   }
@@ -218,6 +219,8 @@ export default function App() {
       netRole={netRole}
       netBuf={netBufRef}
       engineDataRef={engineDataRef}
+      netLost={netLost}
+      onLeaveNet={leaveNet}
       muted={muted}
       onToggleMute={toggleMute}
       onSummoned={(n: number) => {
@@ -262,6 +265,8 @@ function GameView({
   netRole,
   netBuf,
   engineDataRef,
+  netLost,
+  onLeaveNet,
   muted,
   onToggleMute,
   onSummoned,
@@ -276,6 +281,8 @@ function GameView({
   netRole: NetRole | null;
   netBuf: { current: NetMsg[] };
   engineDataRef: { current: ((m: NetMsg) => void) | null };
+  netLost: string | null;
+  onLeaveNet: () => void;
   muted: boolean;
   onToggleMute: () => void;
   onSummoned: (n: number) => void;
@@ -452,6 +459,8 @@ function GameView({
       {overlay?.kind === "pause" && (
         <PauseOverlay
           stats={engineRef.current?.getStats() ?? { time: 0, kills: 0, level: 1, crystals: 0 }}
+          netMode={!!net}
+          onLeaveNet={onLeaveNet}
           onResume={resume}
           onRestart={() => {
             onRunInvalidated();
@@ -501,6 +510,8 @@ function GameView({
           onMenu={() => window.location.reload()}
         />
       )}
+
+      {netLost && <NetLostOverlay reason={netLost} onLeave={onLeaveNet} />}
     </div>
   );
 }

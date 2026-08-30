@@ -42,11 +42,15 @@ export function PauseOverlay({
   onResume,
   onRestart,
   onMenu,
+  onLeaveNet,
+  netMode,
   stats,
 }: {
   onResume: () => void;
   onRestart: () => void;
   onMenu: () => void;
+  onLeaveNet?: () => void;
+  netMode?: boolean;
   stats: RunStats;
 }) {
   return (
@@ -69,10 +73,16 @@ export function PauseOverlay({
         </a>
         <div className="mt-7 flex flex-col gap-3">
           <button onClick={onResume} className="btn-blade clip-btn px-6 py-3">ПРОДОЛЖИТЬ БОЙ</button>
-          <div className="flex gap-3">
-            <button onClick={onRestart} className="btn-ghost clip-btn flex-1 px-4 py-2.5 text-sm">ЗАНОВО</button>
-            <button onClick={onMenu} className="btn-ghost clip-btn flex-1 px-4 py-2.5 text-sm">В МЕНЮ</button>
-          </div>
+          {netMode ? (
+            <button onClick={onLeaveNet} className="btn-ghost clip-btn flex-1 px-4 py-2.5 text-sm text-[#ff9db0]">
+              ПОКИНУТЬ КОМНАТУ
+            </button>
+          ) : (
+            <div className="flex gap-3">
+              <button onClick={onRestart} className="btn-ghost clip-btn flex-1 px-4 py-2.5 text-sm">ЗАНОВО</button>
+              <button onClick={onMenu} className="btn-ghost clip-btn flex-1 px-4 py-2.5 text-sm">В МЕНЮ</button>
+            </div>
+          )}
         </div>
       </div>
     </Backdrop>
@@ -521,6 +531,234 @@ export function EndingScreen({
             <button onClick={onMenu} className="btn-ghost clip-btn px-8 py-3.5">В МЕНЮ</button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- сетевой мультиплеер ----------
+
+export function NetworkModal({
+  onClose,
+  onReady,
+}: {
+  onClose: () => void;
+  onReady: (link: NetLink, role: NetRole) => void;
+}) {
+  const [mode, setMode] = useState<"pick" | "host" | "join">("pick");
+  const [roomCode, setRoomCode] = useState("");
+  const [input, setInput] = useState("");
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const linkRef = useRef<NetLink | null>(null);
+  const readyRef = useRef(false);
+
+  const cleanup = () => {
+    if (linkRef.current && !readyRef.current) linkRef.current.close();
+    linkRef.current = null;
+  };
+
+  const close = () => {
+    cleanup();
+    onClose();
+  };
+
+  const startHost = () => {
+    sfx.ui();
+    setError("");
+    setMode("host");
+    setRoomCode("");
+    setStatus("Создаём комнату...");
+    const link = new NetLink("host", {
+      onRoomReady: (code) => {
+        setRoomCode(code);
+        setStatus("Ждём напарника — передай ему код:");
+      },
+      onConnected: () => {
+        if (readyRef.current) return;
+        readyRef.current = true;
+        sfx.join();
+        onReady(link, "host");
+      },
+      onClose: (reason) => {
+        if (!readyRef.current) {
+          setStatus("");
+          setError(reason || "Соединение закрыто");
+          setMode("pick");
+        }
+      },
+      onError: (text) => {
+        setError(text);
+        setStatus("");
+        setMode("pick");
+      },
+      onData: () => undefined,
+    });
+    linkRef.current = link;
+    link.host();
+  };
+
+  const startJoin = () => {
+    const code = input.trim().toUpperCase();
+    if (code.length < 4) {
+      setError("Введи код комнаты из 4 символов");
+      return;
+    }
+    sfx.ui();
+    setError("");
+    setMode("join");
+    setStatus("Подключаемся к комнате " + code + "...");
+    const link = new NetLink("guest", {
+      onConnected: () => {
+        if (readyRef.current) return;
+        readyRef.current = true;
+        sfx.join();
+        onReady(link, "guest");
+      },
+      onClose: (reason) => {
+        if (!readyRef.current) {
+          setStatus("");
+          setError(reason || "Не удалось подключиться");
+          setMode("pick");
+        }
+      },
+      onError: (text) => {
+        setError(text);
+        setStatus("");
+        setMode("pick");
+      },
+      onData: () => undefined,
+    });
+    linkRef.current = link;
+    link.join(code);
+  };
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(roomCode);
+      setCopied(true);
+      sfx.crystal();
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* noop */
+    }
+  };
+
+  return (
+    <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
+      <div className="panel-dark clip-panel anim-pop relative w-full max-w-xl overflow-hidden px-8 py-8">
+        <div className="stripe-overlay" style={{ opacity: 0.4 }} />
+        <div className="relative">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="font-display text-[10px] tracking-[0.45em] text-[#7cc7ff]">WEBRTC · P2P</div>
+              <div className="font-display mt-1 text-3xl text-[#f7ecf2]">СЕТЕВАЯ ИГРА</div>
+            </div>
+            <button onClick={close} className="btn-ghost clip-btn flex h-9 w-9 items-center justify-center text-lg">✕</button>
+          </div>
+
+          {error && (
+            <div className="anim-rise mt-4 border border-[#ff2e4d]/50 bg-[#3a0f18]/60 px-4 py-2.5 text-sm text-[#ff9db0]">
+              ⚠ {error}
+            </div>
+          )}
+
+          {mode === "pick" && (
+            <div className="mt-6 flex flex-col gap-4">
+              <button onClick={startHost} className="skew-btn group flex items-center justify-between px-8 py-5 text-left">
+                <span>
+                  <span className="font-display block text-xl">СОЗДАТЬ КОМНАТУ</span>
+                  <span className="mt-0.5 block text-xs font-semibold opacity-80">ты — хост: мир, волны и боссы считаются у тебя</span>
+                </span>
+                <span className="text-2xl transition-transform group-hover:translate-x-1">▸</span>
+              </button>
+              <button onClick={() => { sfx.ui(); setError(""); setMode("join"); }} className="skew-btn ghost group flex items-center justify-between px-8 py-5 text-left">
+                <span>
+                  <span className="font-display block text-xl">ПОДКЛЮЧИТЬСЯ ПО КОДУ</span>
+                  <span className="mt-0.5 block text-xs font-semibold opacity-80">введи код друга и вступай в его мир</span>
+                </span>
+                <span className="text-2xl transition-transform group-hover:translate-x-1">▸</span>
+              </button>
+              <p className="mt-1 text-center text-xs leading-relaxed text-[#a98fb8]">
+                Соединение устанавливается напрямую между браузерами (WebRTC) — сервер игры не нужен.
+                <br />
+                Работает в современном браузере; обоим игрокам нужен интернет.
+              </p>
+            </div>
+          )}
+
+          {mode === "host" && (
+            <div className="mt-6 text-center">
+              <div className="text-sm font-semibold text-[#cbb8d8]">{status}</div>
+              {roomCode && (
+                <>
+                  <div className="anim-rise mt-4 inline-flex items-center gap-4 border border-[#ffd166]/60 bg-[#241a08]/70 px-8 py-4">
+                    <span className="font-display text-5xl tracking-[0.4em] text-[#ffd166]" style={{ textShadow: "0 0 24px rgba(255,209,102,0.6)" }}>
+                      {roomCode}
+                    </span>
+                    <button onClick={copyCode} className="btn-ghost clip-btn px-4 py-2.5 text-xs">
+                      {copied ? "СКОПИРОВАНО ✓" : "КОПИРОВАТЬ"}
+                    </button>
+                  </div>
+                  <div className="mt-4 flex items-center justify-center gap-2 text-sm text-[#7cc7ff]">
+                    <span className="net-dot" /> Напарник появится здесь автоматически...
+                  </div>
+                </>
+              )}
+              <button onClick={() => { sfx.ui(); cleanup(); setError(""); setMode("pick"); }} className="btn-ghost clip-btn mt-6 px-8 py-2.5 text-sm">
+                ОТМЕНА
+              </button>
+            </div>
+          )}
+
+          {mode === "join" && (
+            <div className="mt-6 text-center">
+              {status ? (
+                <>
+                  <div className="text-sm font-semibold text-[#cbb8d8]">{status}</div>
+                  <div className="mt-4 flex items-center justify-center gap-2 text-sm text-[#7cc7ff]">
+                    <span className="net-dot" /> Устанавливаем связь...
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm font-semibold text-[#cbb8d8]">Введи код комнаты друга:</div>
+                  <input
+                    autoFocus
+                    value={input}
+                    maxLength={6}
+                    onChange={(e) => setInput(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => e.key === "Enter" && startJoin()}
+                    placeholder="XXXX"
+                    className="font-display mt-4 w-48 border border-[#7cc7ff]/50 bg-[#081420]/80 px-4 py-3 text-center text-3xl tracking-[0.5em] text-[#bfe6ff] outline-none placeholder:text-[#3a5a7a] focus:border-[#7cc7ff] focus:shadow-[0_0_20px_rgba(124,199,255,0.35)]"
+                  />
+                  <div className="mt-5 flex justify-center gap-3">
+                    <button onClick={startJoin} className="skew-btn px-10 py-3">ПОДКЛЮЧИТЬСЯ</button>
+                    <button onClick={() => { sfx.ui(); setError(""); setMode("pick"); }} className="btn-ghost clip-btn px-8 py-3 text-sm">
+                      НАЗАД
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function NetLostOverlay({ reason, onLeave }: { reason: string; onLeave: () => void }) {
+  return (
+    <div className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="panel-dark clip-panel anim-pop w-full max-w-md border-[#ff2e4d]/50 px-9 py-8 text-center">
+        <div className="font-display text-3xl text-[#ff2e4d]" style={{ textShadow: "0 0 26px rgba(255,46,77,0.6)" }}>
+          СВЯЗЬ ПОТЕРЯНА
+        </div>
+        <p className="mt-3 text-sm text-[#cbb8d8]">{reason}</p>
+        <p className="mt-1.5 text-xs text-[#a98fb8]">Прогресс забега хоста сохранён у него на экране.</p>
+        <button onClick={onLeave} className="btn-blade clip-btn mt-6 px-10 py-3">В ГЛАВНОЕ МЕНЮ</button>
       </div>
     </div>
   );

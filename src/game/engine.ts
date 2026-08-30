@@ -1956,7 +1956,7 @@ export class Engine {
       stM: p.stMax,
       fl2: p.flask,
       flM: p.flaskMax,
-      cam: [this.mapW, this.mapH],
+      cam: [this.vW, this.vH],
     });
   }
 
@@ -2070,8 +2070,15 @@ export class Engine {
     const p = this.player;
     p.t += dt;
     this.runTime += dt;
-    this.vW = this.mapW;
-    this.vH = this.mapH;
+    if (this.mode === "battle") {
+      this.vW = this.W;
+      this.vH = this.H;
+      this.camX = 0;
+      this.camY = 0;
+    } else {
+      this.vW = this.mapW;
+      this.vH = this.mapH;
+    }
     // снаряды extrapolate по скорости
     for (const pr of this.projs) {
       pr.x += pr.vx * dt;
@@ -2090,12 +2097,14 @@ export class Engine {
     for (const pk of this.picks) pk.t += dt;
     if (this.p2) this.p2.t += dt;
     if (this.banner.t > 0) this.banner.t -= dt;
-    // камера за своим героем
-    const cx = Math.min(Math.max(p.x - this.W / 2, 0), Math.max(0, this.mapW - this.W));
-    const cy = Math.min(Math.max(p.y - this.H / 2, 0), Math.max(0, this.mapH - this.H));
-    const k = Math.min(1, dt * 9);
-    this.camX += (cx - this.camX) * k;
-    this.camY += (cy - this.camY) * k;
+    // камера за своим героем (только в мире; в бою арена = экран)
+    if (this.mode !== "battle") {
+      const cx = Math.min(Math.max(p.x - this.W / 2, 0), Math.max(0, this.mapW - this.W));
+      const cy = Math.min(Math.max(p.y - this.H / 2, 0), Math.max(0, this.mapH - this.H));
+      const k = Math.min(1, dt * 9);
+      this.camX += (cx - this.camX) * k;
+      this.camY += (cy - this.camY) * k;
+    }
     this.mx = this.mouse.x + this.camX;
     this.my = this.mouse.y + this.camY;
     // ambient-частицы
