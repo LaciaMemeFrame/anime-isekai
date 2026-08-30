@@ -5,6 +5,7 @@ import { drawPortrait, drawChibi } from "../game/sprites";
 import { BLESSINGS, RARITY_META, GACHA_SINGLE, GACHA_TEN, HEROINES, type BlessingDef, type HeroineDef, type UpgradeDef } from "../game/data";
 import type { RunStats } from "../game/engine";
 import { sfx } from "../game/audio";
+import { NetLink, type NetMsg, type NetRole } from "../game/net";
 import { UPGRADE_ICONS, IconGem, IconHeart, IconBlade, IconTelegram } from "./Intro";
 
 // ---------- холст-портрет ----------
