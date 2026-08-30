@@ -1,6 +1,7 @@
 // Движок 2D-слэшера: цикл, бой, ИИ, волны, боссы, героини, частицы.
 
 import { sfx } from "./audio";
+import type { NetLink, NetMsg } from "./net";
 import {
   CHAPTERS,
   HEROINES,
@@ -51,7 +52,8 @@ export interface HudSnapshot {
   locked: boolean;
   classId: string;
   lostRunes: number;
-  coOp: boolean;
+  netRole: "host" | "guest" | "solo";
+  partnerName: string | null;
 }
 
 export interface EngineHandlers {
@@ -290,6 +292,7 @@ export class Engine {
     stWait: 0,
     flask: 3,
     flaskMax: 3,
+    deadNet: 0,
   };
 
   private classId = "blade";
@@ -323,13 +326,23 @@ export class Engine {
   private arcs: Arc[] = [];
   private heroines: HeroineUnit[] = [];
 
-  // ---- локальный кооператив (второй игрок за одной клавиатурой) ----
-  private coOp = false;
+  // ---- сетевой мультиплеер (WebRTC, хост авторитарен) ----
+  private net: NetLink | null = null;
+  private netRole: "host" | "guest" | "solo" = "solo";
+  private mirror = false;
+  private netKeys = new Set<string>();
+  private netAim = 0;
+  private partnerCfg = { classId: "blade", name: "Напарник" };
+  private snapT = 0;
+  private inputT = 0;
+  private pressedBuf: string[] = [];
+  private prevMouseDown = false;
+  private prevKeys = new Set<string>();
   private p2: {
     x: number; y: number; face: 1 | -1; t: number;
     hp: number; maxHp: number; attackT: number; comboCd: number;
     dashT: number; dashCd: number; dashDx: number; dashDy: number;
-    inv: number; deadT: number; moving: boolean;
+    inv: number; deadT: number; moving: boolean; flask: number;
   } | null = null;
 
   private chapterIdx = 0;
@@ -457,17 +470,10 @@ export class Engine {
 
   // ============================ public API ============================
 
-  start(classId: string, coOp = false) {
+  start(classId: string) {
     this.classId = classId;
     this.blessingId = classId;
-    this.coOp = coOp;
-    this.p2 = coOp
-      ? {
-          x: 200, y: 300, face: 1, t: 0, hp: 100, maxHp: 100,
-          attackT: -1, comboCd: 0, dashT: 0, dashCd: 0, dashDx: 0, dashDy: 0,
-          inv: 0, deadT: 0, moving: false,
-        }
-      : null;
+    this.p2 = null;
     const p = this.player;
     p.hp = 100;
     p.maxHp = 100;
@@ -773,7 +779,8 @@ export class Engine {
       locked: this.lockId !== null,
       classId: this.classId,
       lostRunes: this.lostRunes,
-      coOp: this.coOp && !!this.p2,
+      netRole: this.netRole,
+      partnerName: this.p2 ? this.partnerCfg.name : null,
     };
   }
 
@@ -1090,6 +1097,12 @@ export class Engine {
   // ---------- обновление ----------
 
   private update(dt: number) {
+    // гость не симулирует мир — только доводит состояние до снапшота и шлёт инпуты
+    if (this.mirror) {
+      if (!this.paused) this.updateMirror(dt);
+      this.sendInputs(dt);
+      return;
+    }
     if (this.dead) return;
     const p = this.player;
     if (p.hp <= 0) {
@@ -1284,12 +1297,21 @@ export class Engine {
     }
 
     this.updateHeroines(dt);
-    if (this.coOp && this.p2) this.updateP2(dt);
+    if (this.netRole === "host" && this.p2) this.updatePartner(dt);
     if (this.mode === "battle") this.updateWaves(dt);
     else this.updateWorld(dt);
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
     this.updateTelegraphs(dt);
+
+    // хост периодически рассылает снапшоты гостю
+    if (this.netRole === "host" && this.p2 && this.net) {
+      this.snapT += dt;
+      if (this.snapT >= 0.05) {
+        this.snapT = 0;
+        this.sendSnap();
+      }
+    }
     this.updatePickups(dt);
 
     // частицы / тексты / дуги
@@ -1463,6 +1485,7 @@ export class Engine {
       if (idx >= CHAPTERS.length - 1) {
         if (!this.victoryDone) {
           this.victoryDone = true;
+          this.broadcastEnd("victory");
           this.handlers.onVictory(this.getStats());
         }
       } else {
@@ -1508,7 +1531,10 @@ export class Engine {
     this.flashRed = 0.7;
     sfx.death();
     setTimeout(() => {
-      if (!this.destroyed && this.dead) this.handlers.onGameOver();
+      if (!this.destroyed && this.dead) {
+        this.broadcastEnd("over");
+        this.handlers.onGameOver();
+      }
     }, 1100);
   }
 
@@ -1701,9 +1727,137 @@ export class Engine {
     return best;
   }
 
-  // ---------- второй игрок (локальный кооп) ----------
+  // ---------- сетевой напарник (хост авторитарен) ----------
 
-  private updateP2(dt: number) {
+  attachNet(net: NetLink, role: "host" | "guest", buffered: NetMsg[]) {
+    this.net = net;
+    this.netRole = role;
+    if (role === "guest") this.mirror = true;
+    for (const m of buffered) this.netReceive(m);
+    net.send({ t: "cfg", classId: this.classId, name: role === "host" ? "Хост" : "Гость" });
+  }
+
+  netReceivePublic(msg: NetMsg) {
+    this.netReceive(msg);
+  }
+
+  // сетевой режим: конец главы без локальных оверлеев (синхронно для обоих)
+  silentChapterEnd(chapter: number) {
+    const q = chapter === 0 ? ["aria"] : chapter === 2 ? ["yuki"] : chapter === 3 ? ["lira"] : [];
+    for (const id of q) this.addHeroine(id);
+    this.addCrystals(q.length > 0 ? 40 : 60);
+    this.net?.send({ t: "chap", chapter });
+    this.nextChapter();
+  }
+
+  private broadcastEnd(kind: "victory" | "over") {
+    if (this.netRole !== "host") return;
+    this.net?.send({ t: "end", kind, stats: kind === "victory" ? this.getStats() : null });
+  }
+
+  private netReceive(msg: NetMsg) {
+    if (this.netRole === "host") {
+      if (msg.t === "cfg") {
+        this.partnerCfg = { classId: msg.classId || "blade", name: msg.name || "Гость" };
+        if (!this.p2) {
+          this.p2 = {
+            x: this.player.x + 60, y: this.player.y + 30, face: -1, t: 0,
+            hp: 110, maxHp: 110, attackT: -1, comboCd: 0, dashT: 0, dashCd: 0,
+            dashDx: 0, dashDy: 0, inv: 0, deadT: 0, moving: false, flask: 3,
+          };
+          const q = this.p2;
+          this.banner = { text: "НАПАРНИК В БОЮ", sub: `${this.partnerCfg.name} присоединился!`, t: 2.2 };
+          this.burst(q.x, q.y - 10, "#7cc7ff", 26, true);
+          sfx.join();
+        }
+      } else if (msg.t === "in") {
+        this.netKeys = new Set<string>(msg.k || []);
+        if (typeof msg.aim === "number") this.netAim = msg.aim;
+        for (const pr of msg.p || []) this.partnerPress(pr);
+      }
+    } else if (msg.t === "s") {
+      this.applySnap(msg);
+    } else if (msg.t === "cfg") {
+      this.partnerCfg = { classId: msg.classId || "blade", name: msg.name || "Хост" };
+    } else if (msg.t === "chap") {
+      // хост перешёл дальше — гость тоже получает героинь и следует за миром
+      const q = msg.chapter === 0 ? ["aria"] : msg.chapter === 2 ? ["yuki"] : msg.chapter === 3 ? ["lira"] : [];
+      for (const id of q) this.addHeroine(id);
+    } else if (msg.t === "end") {
+      if (msg.kind === "victory") this.handlers.onVictory(msg.stats);
+      else this.handlers.onGameOver();
+    }
+  }
+
+  private partnerPress(code: string) {
+    const q = this.p2;
+    if (!q || q.deadT > 0 || this.paused || this.frozen || this.dead) return;
+    const a = this.netAim;
+    if (code === "ATK" && q.comboCd <= 0 && q.attackT >= 0.4) {
+      q.comboCd = 0.4;
+      q.attackT = 0;
+      if (Math.cos(a) !== 0) q.face = Math.cos(a) >= 0 ? 1 : -1;
+      this.arcs.push({ x: q.x + Math.cos(a) * 30, y: q.y - 6, ang: a, spread: 1.6, r: 56, life: 0.16, max: 0.16, color: "#7cc7ff", width: 4 });
+      sfx.slash();
+      for (const e of this.enemies) {
+        if (e.hp <= 0) continue;
+        const d = Math.hypot(e.x - q.x, e.y - q.y);
+        if (d < 88 + e.r) {
+          const ea = Math.atan2(e.y - q.y, e.x - q.x);
+          let diff = Math.abs(ea - a);
+          if (diff > Math.PI) diff = Math.PI * 2 - diff;
+          if (diff < 1.25) this.hurtEnemy(e, this.effAtk() * 0.95, false, Math.cos(ea) * 130, Math.sin(ea) * 130);
+        }
+      }
+    } else if (code === "DASH" && q.dashCd <= 0 && q.dashT <= 0) {
+      q.dashT = 0.16;
+      q.dashCd = 1.1;
+      q.dashDx = Math.cos(a);
+      q.dashDy = Math.sin(a);
+      sfx.dash();
+    } else if (code === "SKILL" && q.comboCd <= 0) {
+      q.comboCd = 0.5;
+      const cls = this.partnerCfg.classId;
+      if (cls === "frost") {
+        this.arcs.push({ x: q.x, y: q.y - 6, ang: 0, spread: Math.PI * 2, r: 130, life: 0.28, max: 0.28, color: "#9fd8ff", width: 6 });
+        for (const e of this.enemies) {
+          if (e.hp > 0 && Math.hypot(e.x - q.x, e.y - q.y) < 140 + e.r) {
+            const ea = Math.atan2(e.y - q.y, e.x - q.x);
+            this.hurtEnemy(e, this.effAtk() * 1.3, false, Math.cos(ea) * 260, Math.sin(ea) * 260);
+          }
+        }
+        this.burst(q.x, q.y - 8, "#9fd8ff", 14, true);
+        sfx.wave();
+      } else if (cls === "arrow") {
+        for (let i = -1; i <= 1; i++) {
+          const aa = a + i * 0.24;
+          this.projs.push({
+            x: q.x + Math.cos(aa) * 22, y: q.y - 10 + Math.sin(aa) * 22,
+            vx: Math.cos(aa) * 640, vy: Math.sin(aa) * 640,
+            r: 9, dmg: this.effAtk() * 1.0, from: "ally", life: 0.9,
+            color: "#35f0d0", kind: "arrow", pierce: 2, hits: new Set(),
+          });
+        }
+        sfx.arrow();
+      } else {
+        this.projs.push({
+          x: q.x + Math.cos(a) * 26, y: q.y - 8 + Math.sin(a) * 26,
+          vx: Math.cos(a) * 540, vy: Math.sin(a) * 540,
+          r: 22, dmg: this.effAtk() * 1.8, from: "ally", life: 0.8,
+          color: "#7cc7ff", kind: "crescent", pierce: 999, hits: new Set(),
+        });
+        sfx.wave();
+      }
+    } else if (code === "FLASK" && q.flask > 0 && q.hp < q.maxHp) {
+      q.flask--;
+      const heal = q.maxHp * 0.45;
+      q.hp = Math.min(q.maxHp, q.hp + heal);
+      this.burst(q.x, q.y - 12, "#ffd166", 10, true);
+      sfx.heart();
+    }
+  }
+
+  private updatePartner(dt: number) {
     const q = this.p2!;
     const p = this.player;
     q.t += dt;
@@ -1726,23 +1880,14 @@ export class Engine {
       return;
     }
 
-    // в открытом мире держится рядом с первым игроком
+    // движение по сетевым клавишам гостя
+    const k = this.netKeys;
     let dx = 0;
     let dy = 0;
-    if (this.mode === "world") {
-      const dxp = p.x - q.x;
-      const dyp = p.y - q.y;
-      const far = Math.hypot(dxp, dyp);
-      if (far > 120) {
-        dx = dxp / (far || 1);
-        dy = dyp / (far || 1);
-      }
-    } else {
-      if (this.keys.has("ArrowLeft")) dx -= 1;
-      if (this.keys.has("ArrowRight")) dx += 1;
-      if (this.keys.has("ArrowUp")) dy -= 1;
-      if (this.keys.has("ArrowDown")) dy += 1;
-    }
+    if (k.has("KeyA") || k.has("ArrowLeft")) dx -= 1;
+    if (k.has("KeyD") || k.has("ArrowRight")) dx += 1;
+    if (k.has("KeyW") || k.has("ArrowUp")) dy -= 1;
+    if (k.has("KeyS") || k.has("ArrowDown")) dy += 1;
     const len = Math.hypot(dx, dy);
     q.moving = len > 0;
     if (len > 0) {
@@ -1750,49 +1895,18 @@ export class Engine {
       dy /= len;
       if (dx !== 0) q.face = dx > 0 ? 1 : -1;
     }
-
-    // рывок
-    if ((this.keys.has("ControlRight") || this.keys.has("Numpad0")) && q.dashCd <= 0 && q.dashT <= 0 && len > 0) {
-      q.dashT = 0.16;
-      q.dashCd = 1.2;
-      q.dashDx = dx;
-      q.dashDy = dy;
-      sfx.dash();
-    }
     if (q.dashT > 0) {
       q.dashT -= dt;
       q.x += q.dashDx * 560 * dt;
       q.y += q.dashDy * 560 * dt;
       this.parts.push({ x: q.x, y: q.y - 10, vx: 0, vy: 0, life: 0.2, max: 0.2, size: 6, color: "rgba(124,199,255,0.5)", glow: true, grav: 0 });
     } else {
-      const spd = 230;
-      q.x += dx * spd * dt;
-      q.y += dy * spd * dt;
+      q.x += dx * 240 * dt;
+      q.y += dy * 240 * dt;
     }
     const topB = this.mode === "world" ? 44 : 96;
     q.x = Math.min(Math.max(q.x, 26), this.vW - 26);
     q.y = Math.min(Math.max(q.y, topB), this.vH - 30);
-
-    // атака (Right Shift / Enter / Numpad1)
-    if ((this.keys.has("ShiftRight") || this.keys.has("Enter") || this.keys.has("Numpad1")) && q.comboCd <= 0 && q.attackT >= 0.4) {
-      q.comboCd = 0.42;
-      q.attackT = 0;
-      const tgt = this.nearestEnemy(q.x, q.y, 80);
-      const a = tgt ? Math.atan2(tgt.y - q.y, tgt.x - q.x) : q.face === 1 ? 0 : Math.PI;
-      if (Math.cos(a) !== 0) q.face = Math.cos(a) >= 0 ? 1 : -1;
-      this.arcs.push({ x: q.x + Math.cos(a) * 30, y: q.y - 6, ang: a, spread: 1.5, r: 52, life: 0.15, max: 0.15, color: "#7cc7ff", width: 4 });
-      sfx.slash();
-      for (const e of this.enemies) {
-        if (e.hp <= 0) continue;
-        const d = Math.hypot(e.x - q.x, e.y - q.y);
-        if (d < 84 + e.r) {
-          const ea = Math.atan2(e.y - q.y, e.x - q.x);
-          let diff = Math.abs(ea - a);
-          if (diff > Math.PI) diff = Math.PI * 2 - diff;
-          if (diff < 1.2) this.hurtEnemy(e, this.effAtk() * 0.9, false, Math.cos(ea) * 120, Math.sin(ea) * 120);
-        }
-      }
-    }
   }
 
   private hurtP2(dmg: number) {
@@ -1806,8 +1920,240 @@ export class Engine {
       q.hp = 0;
       q.deadT = 5;
       this.burst(q.x, q.y - 10, "#7cc7ff", 24, true);
-      this.floats.push({ x: q.x, y: q.y - 40, life: 1, max: 1, text: "P2 ПАЛ — 5с", color: "#7cc7ff", size: 15 });
+      this.floats.push({ x: q.x, y: q.y - 40, life: 1, max: 1, text: `${this.partnerCfg.name} ПАЛ — 5с`, color: "#7cc7ff", size: 15 });
       sfx.hurt();
+    }
+  }
+
+  // ---------- сетевые снапшоты (хост → гость) ----------
+
+  private sendSnap() {
+    const p = this.player;
+    const q = this.p2;
+    this.net?.send({
+      t: "s",
+      paused: this.paused,
+      mode: this.mode,
+      ch: this.chapterIdx,
+      wv: this.waveIdx,
+      wt: CHAPTERS[this.chapterIdx].waves.length,
+      zone: CHAPTERS[this.mode === "world" ? this.worldIdx : this.chapterIdx].name,
+      p: [p.x, p.y, p.face, p.hp, p.maxHp, p.attackT, p.dashT, p.inv > 0 ? 1 : 0, p.ultT > 0 ? 1 : 0, p.moving ? 1 : 0, p.ult, p.level],
+      g: q ? [q.x, q.y, q.face, q.hp, q.maxHp, q.attackT, q.dashT, q.inv > 0 ? 1 : 0, 0, q.moving ? 1 : 0, q.deadT] : null,
+      en: this.enemies.map((e) => [e.id, e.type === "boss" ? "boss" : e.type, e.kind ?? "", e.x, e.y, e.hp, e.maxHp, e.r, e.face, e.enraged ? 1 : 0, e.elite ? 1 : 0, e.state, e.stateT]),
+      pr: this.projs.map((r) => [r.x, r.y, r.vx, r.vy, r.r, r.color, r.kind, r.from === "foe" ? 1 : 0, r.life]),
+      pk: this.picks.map((r) => [r.x, r.y, r.kind, r.v]),
+      fl: this.floats.slice(-24).map((f) => [f.x, f.y, f.text, f.color, f.life, f.max, f.size]),
+      ar: this.arcs.slice(-10).map((r) => [r.x, r.y, r.ang, r.spread, r.r, r.life, r.max, r.color, r.width]),
+      tg: this.telegraphs.map((r) => [r.x, r.y, r.r, r.t, r.max, r.color]),
+      bn: this.banner.t > 0 ? [this.banner.text, this.banner.sub, this.banner.t] : null,
+      kills: this.kills,
+      runes: this.lostRunes,
+      cry: p.crystals,
+      xp: p.xp,
+      xpN: p.xpNeed,
+      st: p.st,
+      stM: p.stMax,
+      fl2: p.flask,
+      flM: p.flaskMax,
+      cam: [this.vW, this.vH],
+    });
+  }
+
+  private applySnap(s: NetMsg) {
+    const p = this.player;
+    const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+    // гость управляет «g» (свой герой), напарник — «p» (хост)
+    if (s.g) {
+      p.x = lerp(p.x, s.g[0], 0.45);
+      p.y = lerp(p.y, s.g[1], 0.45);
+      p.face = s.g[2];
+      p.hp = s.g[3];
+      p.maxHp = s.g[4];
+      p.attackT = s.g[5];
+      p.dashT = s.g[6];
+      p.inv = s.g[7] ? 0.4 : 0;
+      p.moving = !!s.g[9];
+      p.deadNet = s.g[10];
+    }
+    if (!this.p2 && s.p) {
+      this.p2 = {
+        x: s.p[0], y: s.p[1], face: s.p[2], t: 0, hp: s.p[3], maxHp: s.p[4],
+        attackT: -1, comboCd: 0, dashT: 0, dashCd: 0, dashDx: 0, dashDy: 0,
+        inv: 0, deadT: 0, moving: false, flask: 2,
+      };
+    } else if (this.p2 && s.p) {
+      const q = this.p2;
+      q.x = lerp(q.x, s.p[0], 0.45);
+      q.y = lerp(q.y, s.p[1], 0.45);
+      q.face = s.p[2];
+      q.hp = s.p[3];
+      q.maxHp = s.p[4];
+      q.attackT = s.p[5];
+      q.dashT = s.p[6];
+      q.moving = !!s.p[9];
+    }
+    p.ult = s.p ? s.p[10] : p.ult;
+    p.level = s.p ? s.p[11] : p.level;
+    p.crystals = s.cry;
+    p.xp = s.xp;
+    p.xpNeed = s.xpN;
+    p.st = s.st;
+    p.stMax = s.stM;
+    p.flask = s.fl2;
+    p.flaskMax = s.flM;
+    this.lostRunes = s.runes;
+    this.kills = s.kills;
+    this.mode = s.mode;
+    this.chapterIdx = s.ch;
+    this.waveIdx = s.wv;
+    this.mapW = s.cam[0];
+    this.mapH = s.cam[1];
+    if (s.bn) this.banner = { text: s.bn[0], sub: s.bn[1], t: s.bn[2] };
+    else if (this.banner.t > 0) this.banner.t = Math.min(this.banner.t, 0.2);
+    // враги: сохраняем объекты по id для плавности
+    const seen = new Set<number>();
+    for (const e of s.en) {
+      const id = e[0];
+      seen.add(id);
+      let en = this.enemies.find((x) => x.id === id);
+      if (!en) {
+        en = this.makeEnemy(e[1] === "boss" ? "imp" : e[1], e[3], e[4], 1, 1, 1, 0);
+        en.id = id;
+        if (e[1] === "boss") {
+          en.type = "boss";
+          en.kind = e[2];
+          en.r = 40;
+          this.boss = en;
+        }
+        this.enemies.push(en);
+      }
+      en.x += (e[3] - en.x) * 0.5;
+      en.y += (e[4] - en.y) * 0.5;
+      en.hp = e[5];
+      en.maxHp = e[6];
+      en.r = e[1] === "boss" ? 40 : e[7];
+      en.face = e[8];
+      en.enraged = !!e[9];
+      en.elite = !!e[10];
+      en.state = e[11];
+      en.stateT = e[12];
+      en.flash = Math.max(0, en.flash - 0.02);
+    }
+    this.enemies = this.enemies.filter((e) => seen.has(e.id));
+    if (this.boss && !seen.has(this.boss.id)) this.boss = null;
+    // снаряды/дроп/эффекты — заменяем целиком (движутся локально между снапшотами)
+    this.projs = s.pr.map((r: number[]) => ({
+      x: r[0], y: r[1], vx: r[2], vy: r[3], r: r[4], dmg: 0,
+      from: r[7] ? ("foe" as const) : ("ally" as const), life: r[8],
+      color: r[5], kind: r[6], pierce: 1, hits: new Set<number>(),
+    }));
+    this.picks = s.pk.map((r: (number | string)[]) => ({
+      x: r[0] as number, y: r[1] as number, vx: 0, vy: 0,
+      kind: r[2] as Pickup["kind"], v: r[3] as number, t: 0,
+    }));
+    for (const f of s.fl) {
+      if (!this.floats.some((x) => x.text === f[2] && Math.abs(x.x - f[0]) < 4 && Math.abs(x.y - f[1]) < 4)) {
+        this.floats.push({ x: f[0], y: f[1], text: f[2], color: f[3], life: f[4], max: f[5], size: f[6] });
+      }
+    }
+    this.arcs = s.ar.map((r: number[]) => ({
+      x: r[0], y: r[1], ang: r[2], spread: r[3], r: r[4], life: r[5], max: r[6], color: r[7], width: r[8],
+    }));
+    this.telegraphs = s.tg.map((r: (number | string)[]) => ({
+      x: r[0] as number, y: r[1] as number, r: r[2] as number, t: r[3] as number, max: r[4] as number, color: r[5] as string, dmg: 0,
+    }));
+  }
+
+  // гость: локальная симуляция выключена — только плавное доведение до снапшота
+  private updateMirror(dt: number) {
+    const p = this.player;
+    p.t += dt;
+    this.runTime += dt;
+    if (this.mode === "battle") {
+      this.vW = this.W;
+      this.vH = this.H;
+      this.camX = 0;
+      this.camY = 0;
+    } else {
+      this.vW = this.mapW;
+      this.vH = this.mapH;
+    }
+    // снаряды extrapolate по скорости
+    for (const pr of this.projs) {
+      pr.x += pr.vx * dt;
+      pr.y += pr.vy * dt;
+      pr.life -= dt;
+    }
+    this.projs = this.projs.filter((pr) => pr.life > 0);
+    // таймеры визуальных эффектов
+    for (const a of this.arcs) a.life -= dt;
+    this.arcs = this.arcs.filter((a) => a.life > 0);
+    for (const f of this.floats) {
+      f.life -= dt;
+      f.y -= 26 * dt;
+    }
+    this.floats = this.floats.filter((f) => f.life > 0);
+    for (const pk of this.picks) pk.t += dt;
+    if (this.p2) this.p2.t += dt;
+    if (this.banner.t > 0) this.banner.t -= dt;
+    // камера за своим героем (только в мире; в бою арена = экран)
+    if (this.mode !== "battle") {
+      const cx = Math.min(Math.max(p.x - this.W / 2, 0), Math.max(0, this.mapW - this.W));
+      const cy = Math.min(Math.max(p.y - this.H / 2, 0), Math.max(0, this.mapH - this.H));
+      const k = Math.min(1, dt * 9);
+      this.camX += (cx - this.camX) * k;
+      this.camY += (cy - this.camY) * k;
+    }
+    this.mx = this.mouse.x + this.camX;
+    this.my = this.mouse.y + this.camY;
+    // ambient-частицы
+    this.ambientT -= dt;
+    if (this.ambientT <= 0 && this.parts.length < 130) {
+      this.ambientT = 0.16;
+      const ch = CHAPTERS[Math.min(this.chapterIdx, CHAPTERS.length - 1)];
+      const x = this.camX + Math.random() * this.W;
+      if (ch.ambient === "ember") this.parts.push({ x, y: this.camY + this.H + 8, vx: 0, vy: -36, life: 4, max: 4, size: 2.4, color: "rgba(255,140,60,0.7)", glow: true, grav: 0 });
+      else if (ch.ambient === "snow") this.parts.push({ x, y: this.camY - 8, vx: -22, vy: 44, life: 5, max: 5, size: 2, color: "rgba(220,240,255,0.6)", glow: false, grav: 4 });
+      else this.parts.push({ x, y: this.camY - 8, vx: -12, vy: 32, life: 5, max: 5, size: 2, color: "rgba(160,200,150,0.4)", glow: false, grav: 6 });
+    }
+    for (const pt of this.parts) {
+      pt.life -= dt;
+      pt.x += pt.vx * dt;
+      pt.y += pt.vy * dt;
+      pt.vy += pt.grav * dt;
+    }
+    this.parts = this.parts.filter((pt) => pt.life > 0);
+    this.shake = Math.max(0, this.shake - dt * 26);
+    this.flashRed = Math.max(0, this.flashRed - dt * 2);
+    this.flashWhite = Math.max(0, this.flashWhite - dt * 2);
+  }
+
+  // гость: отправка ввода хосту
+  private sendInputs(dt: number) {
+    if (!this.net) return;
+    this.inputT += dt;
+    const p = this.player;
+    const aim = Math.atan2(this.my - (p.y - 8), this.mx - p.x);
+
+    // события-нажатия (атака, рывок, навык, фляга)
+    if (this.mouse.down && !this.prevMouseDown) this.pressedBuf.push("ATK");
+    this.prevMouseDown = this.mouse.down;
+    if (this.keys.has("Space") && !this.prevKeys.has("Space")) this.pressedBuf.push("DASH");
+    if ((this.keys.has("KeyQ") || this.keys.has("KeyK")) && !this.prevKeys.has("KeyQ") && !this.prevKeys.has("KeyK"))
+      this.pressedBuf.push("SKILL");
+    if (this.keys.has("KeyF") && !this.prevKeys.has("KeyF")) this.pressedBuf.push("FLASK");
+
+    if (this.inputT >= 0.05) {
+      this.inputT = 0;
+      this.net.send({
+        t: "in",
+        k: [...this.keys],
+        p: this.pressedBuf,
+        aim,
+      });
+      this.pressedBuf = [];
+      this.prevKeys = new Set(this.keys);
     }
   }
 

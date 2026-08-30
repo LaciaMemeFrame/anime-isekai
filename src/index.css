@@ -321,6 +321,20 @@ body {
   100% { opacity: 1; letter-spacing: 0.24em; filter: blur(0); }
 }
 
+/* пульсирующая точка сетевого статуса */
+.net-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #35f0d0;
+  box-shadow: 0 0 10px rgba(53, 240, 208, 0.9);
+  animation: netDot 1.1s ease-in-out infinite;
+}
+@keyframes netDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.72); }
+}
+
 /* ссылка на telegram */
 .tg-link {
   background: linear-gradient(180deg, rgba(46, 107, 171, 0.28), rgba(46, 107, 171, 0.12));

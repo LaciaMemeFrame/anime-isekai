@@ -5,9 +5,10 @@ import { Engine, type HudSnapshot, type RunSave, type RunStats } from "./game/en
 import { BLESSINGS, GACHA_SINGLE, GACHA_TEN, HEROINES, RARITY_META, type BlessingDef, type UpgradeDef } from "./game/data";
 import { isMuted, setMuted, sfx, startAmbient, unlockAudio } from "./game/audio";
 import { setTrack, setMusicVolume, unlockMusic } from "./game/music";
+import { NetLink, type NetMsg, type NetRole } from "./game/net";
 import { TitleScreen, IntroCinematic } from "./ui/Intro";
 import { Hud } from "./ui/Hud";
-import { PauseOverlay, LevelUpModal, JoinScene, GachaModal, GameOverOverlay, EndingScreen } from "./ui/Modals";
+import { PauseOverlay, LevelUpModal, JoinScene, GachaModal, GameOverOverlay, EndingScreen, NetworkModal, NetLostOverlay } from "./ui/Modals";
 
 type Phase = "title" | "intro" | "game" | "ending";
 type Overlay =
@@ -60,7 +61,12 @@ export default function App() {
   const [summons, setSummons] = useState(0);
   const [muted, setMutedState] = useState(isMuted());
   const [resumeSave, setResumeSave] = useState<RunSave | null>(null);
-  const [coOp, setCoOp] = useState(false);
+  const [net, setNet] = useState<NetLink | null>(null);
+  const [netRole, setNetRole] = useState<NetRole | null>(null);
+  const [netOpen, setNetOpen] = useState(false);
+  const [netLost, setNetLost] = useState<string | null>(null);
+  const netBufRef = useRef<NetMsg[]>([]);
+  const engineDataRef = useRef<((m: NetMsg) => void) | null>(null);
 
   const saveMeta = useCallback((patch: Partial<Meta>) => {
     setMeta((prev) => {
@@ -97,6 +103,36 @@ export default function App() {
     else if (phase === "ending") setTrack("ending");
   }, [phase]);
 
+  // сетевое подключение установлено (из NetworkModal)
+  const handleNetReady = (link: NetLink, role: NetRole) => {
+    netBufRef.current = [];
+    // маршрутизация входящих: в движок, если он готов, иначе в буфер
+    link.setDataHandler((msg) => {
+      if (engineDataRef.current) engineDataRef.current(msg);
+      else netBufRef.current.push(msg);
+    });
+    link.setCloseHandler((reason) => setNetLost(reason));
+    setNet(link);
+    setNetRole(role);
+    setNetOpen(false);
+    startAmbient();
+    clearRunSave();
+    setResumeSave(null);
+    setRunId((r) => r + 1);
+    setSummons(0);
+    setPhase("intro");
+  };
+
+  const leaveNet = () => {
+    net?.close();
+    setNet(null);
+    setNetRole(null);
+    setNetLost(null);
+    engineDataRef.current = null;
+    netBufRef.current = [];
+    setPhase("title");
+  };
+
   if (phase === "title") {
     return (
       <div className="h-screen w-screen">
@@ -105,14 +141,21 @@ export default function App() {
           hasSave={loadSave() !== null}
           totalKills={meta.totalKills}
           totalSummons={meta.totalSummons}
-          onStart={(co) => {
+          onStart={() => {
             startAmbient();
             clearRunSave();
             setResumeSave(null);
-            setCoOp(!!co);
+            setNet(null);
+            setNetRole(null);
             setRunId((r) => r + 1);
             setSummons(0);
             setPhase("intro");
+          }}
+          onNet={() => {
+            unlockAudio();
+            unlockMusic();
+            sfx.ui();
+            setNetOpen(true);
           }}
           onContinue={() => {
             const s = loadSave();
@@ -125,6 +168,8 @@ export default function App() {
             setPhase("game");
           }}
         />
+        {netOpen && <NetworkModal onClose={() => setNetOpen(false)} onReady={handleNetReady} />}
+        {netLost && <NetLostOverlay reason={netLost} onLeave={leaveNet} />}
       </div>
     );
   }
@@ -170,7 +215,12 @@ export default function App() {
       key={runId}
       gift={gift}
       resumeSave={resumeSave}
-      coOp={coOp}
+      net={net}
+      netRole={netRole}
+      netBuf={netBufRef}
+      engineDataRef={engineDataRef}
+      netLost={netLost}
+      onLeaveNet={leaveNet}
       muted={muted}
       onToggleMute={toggleMute}
       onSummoned={(n: number) => {
@@ -211,7 +261,12 @@ export default function App() {
 function GameView({
   gift,
   resumeSave,
-  coOp,
+  net,
+  netRole,
+  netBuf,
+  engineDataRef,
+  netLost,
+  onLeaveNet,
   muted,
   onToggleMute,
   onSummoned,
@@ -222,7 +277,12 @@ function GameView({
 }: {
   gift: string;
   resumeSave: RunSave | null;
-  coOp: boolean;
+  net: NetLink | null;
+  netRole: NetRole | null;
+  netBuf: { current: NetMsg[] };
+  engineDataRef: { current: ((m: NetMsg) => void) | null };
+  netLost: string | null;
+  onLeaveNet: () => void;
   muted: boolean;
   onToggleMute: () => void;
   onSummoned: (n: number) => void;
@@ -269,16 +329,24 @@ function GameView({
     });
     engineRef.current = engine;
     if (resumeSave) engine.loadSave(resumeSave);
-    else engine.start(gift, coOp);
+    else engine.start(gift);
     unlockAudio();
     unlockMusic();
     startAmbient();
+
+    // сетевой режим: подключаем движок к каналу
+    if (net && netRole) {
+      engineDataRef.current = (m) => engine.netReceivePublic(m);
+      engine.attachNet(net, netRole, netBuf.current);
+      netBuf.current = [];
+    }
 
     const iv = setInterval(() => setSnap(engine.snapshot()), 100);
     return () => {
       clearInterval(iv);
       engine.destroy();
       engineRef.current = null;
+      engineDataRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -391,6 +459,8 @@ function GameView({
       {overlay?.kind === "pause" && (
         <PauseOverlay
           stats={engineRef.current?.getStats() ?? { time: 0, kills: 0, level: 1, crystals: 0 }}
+          netMode={!!net}
+          onLeaveNet={onLeaveNet}
           onResume={resume}
           onRestart={() => {
             onRunInvalidated();
@@ -440,6 +510,8 @@ function GameView({
           onMenu={() => window.location.reload()}
         />
       )}
+
+      {netLost && <NetLostOverlay reason={netLost} onLeave={onLeaveNet} />}
     </div>
   );
 }

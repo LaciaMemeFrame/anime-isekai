@@ -154,13 +154,15 @@ export const UPGRADE_ICONS: Record<string, (p: { size?: number; color?: string }
 
 export function TitleScreen({
   onStart,
+  onNet,
   onContinue,
   best,
   hasSave,
   totalKills,
   totalSummons,
 }: {
-  onStart: (coOp?: boolean) => void;
+  onStart: () => void;
+  onNet: () => void;
   onContinue?: () => void;
   best: { level: number; kills: number } | null;
   hasSave: boolean;
@@ -348,21 +350,16 @@ export function TitleScreen({
           </button>
           <button
             className="skew-btn ghost flex items-center gap-2.5 px-10 py-3 text-lg"
-            title="Второй игрок за одной клавиатурой: стрелки — движение, Right Shift — атака, Right Ctrl — рывок"
-            onClick={() => {
-              unlockAudio();
-              unlockMusic();
-              sfx.join();
-              onStart(true);
-            }}
+            title="Сетевая игра по интернету: создайте комнату и передайте код другу"
+            onClick={onNet}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="8" cy="7" r="3.4" />
-              <path d="M2 20 C2 15 4.5 12.5 8 12.5 C11.5 12.5 14 15 14 20 Z" />
-              <circle cx="16.5" cy="8" r="2.8" opacity="0.85" />
-              <path d="M12 20 C12 16 14 13.5 16.5 13.5 C19.5 13.5 22 16 22 20 Z" opacity="0.85" />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="6" cy="6" r="2.6" />
+              <circle cx="18" cy="18" r="2.6" />
+              <path d="M8 8 L16 16" />
+              <path d="M18 6 A12 12 0 0 0 6 6 M6 18 A12 12 0 0 0 18 18" opacity="0.5" />
             </svg>
-            Кооп · 2 игрока
+            Сетевая игра
           </button>
           <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-semibold text-[#a98fb8]">
             <span className="hud-chip clip-btn px-3 py-1.5 text-[#ff2e4d]">SOULS-LIKE</span>

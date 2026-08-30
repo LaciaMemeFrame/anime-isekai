@@ -234,14 +234,22 @@ export function Hud({
         </div>
       )}
 
-      {/* ===== индикатор коопа ===== */}
-      {snap.coOp && (
+      {/* ===== индикатор сети ===== */}
+      {snap.netRole !== "solo" && (
         <div className="pointer-events-none absolute top-24 left-1/2 -translate-x-1/2">
           <div className="hud-chip clip-btn flex items-center gap-2.5 px-4 py-1.5 text-xs text-[#7cc7ff]">
-            <span className="font-display rounded-sm bg-[#1d4a8f] px-2 py-0.5 text-[#bfe6ff]">P2</span>
+            <span className="font-display rounded-sm bg-[#1d4a8f] px-2 py-0.5 text-[#bfe6ff]">
+              {snap.netRole === "host" ? "ХОСТ" : "ГОСТЬ"}
+            </span>
             <span>
-              <b className="font-display text-[#bfe6ff]">Стрелки</b> бег · <b className="font-display text-[#bfe6ff]">Right Shift</b> атака ·{" "}
-              <b className="font-display text-[#bfe6ff]">Right Ctrl</b> рывок
+              Сетевая игра
+              {snap.partnerName ? (
+                <>
+                  {" "}· напарник: <b className="font-display text-[#bfe6ff]">{snap.partnerName}</b>
+                </>
+              ) : (
+                " · ожидание напарника…"
+              )}
             </span>
           </div>
         </div>
