@@ -190,19 +190,22 @@ export function Hud({
         ))}
       </div>
 
-      {/* ===== низ справа: навыки ===== */}
+      {/* ===== низ справа: хотбар навыков (цифры 1–4) ===== */}
       <div className="absolute right-4 bottom-4 flex items-end gap-2.5">
         <SkillBox label="ЛКМ" name="Клинок" ready iconColor="#f7ecf2">
           <IconBlade size={20} color="#f7ecf2" />
         </SkillBox>
-        <SkillBox label="SPACE" name="Рывок" cd={snap.dashCd} max={snap.dashMax} iconColor="#ffd166">
-          <IconWing size={20} color="#ffd166" />
-        </SkillBox>
-        <SkillBox label="Q" name={snap.classId === "frost" ? "Мороз" : snap.classId === "arrow" ? "Стрелы" : "Волна"} cd={snap.waveCd} max={snap.waveMax} iconColor="#35f0d0">
+        <SkillBox label="1" name={snap.classId === "frost" ? "Мороз" : snap.classId === "arrow" ? "Стрелы" : "Волна"} cd={snap.waveCd} max={snap.waveMax} iconColor="#35f0d0">
           <IconMoon size={20} color="#35f0d0" />
         </SkillBox>
-        <SkillBox label="E" name="Ярость" ult={snap.ult} iconColor={snap.ult >= 100 ? "#ffd166" : "#a98fb8"}>
+        <SkillBox label="2" name="Рывок" cd={snap.dashCd} max={snap.dashMax} iconColor="#ffd166">
+          <IconWing size={20} color="#ffd166" />
+        </SkillBox>
+        <SkillBox label="3" name="Ярость" ult={snap.ult} iconColor={snap.ult >= 100 ? "#ffd166" : "#a98fb8"}>
           <IconFury size={20} color={snap.ult >= 100 ? "#ffd166" : "#a98fb8"} />
+        </SkillBox>
+        <SkillBox label="4" name="Фляга" flasks={snap.flask} iconColor={snap.flask > 0 ? "#ff6b8a" : "#a98fb8"}>
+          <IconFlask size={20} color={snap.flask > 0 ? "#ff6b8a" : "#a98fb8"} />
         </SkillBox>
       </div>
 
@@ -260,8 +263,9 @@ export function Hud({
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
           <div className="hud-chip clip-btn px-5 py-2 text-xs text-[#cbb8d8]">
             <b className="font-display text-[#ffd166]">WASD</b> бег · <b className="font-display text-[#ffd166]">ЛКМ</b> комбо ·{" "}
-            <b className="font-display text-[#ffd166]">SPACE</b> рывок · <b className="font-display text-[#ffd166]">Q</b> навык ·{" "}
-            <b className="font-display text-[#ffd166]">F</b> фляга · <b className="font-display text-[#ffd166]">TAB</b> захват
+            <b className="font-display text-[#ffd166]">1</b> навык · <b className="font-display text-[#ffd166]">2</b> рывок ·{" "}
+            <b className="font-display text-[#ffd166]">3</b> ярость · <b className="font-display text-[#ffd166]">4</b> фляга ·{" "}
+            <b className="font-display text-[#ffd166]">TAB</b> захват
           </div>
         </div>
       )}
@@ -276,6 +280,7 @@ function SkillBox({
   cd = 0,
   max = 1,
   ult,
+  flasks,
   ready,
   iconColor,
 }: {
@@ -285,10 +290,11 @@ function SkillBox({
   cd?: number;
   max?: number;
   ult?: number;
+  flasks?: number;
   ready?: boolean;
   iconColor: string;
 }) {
-  const frac = ult !== undefined ? ult / 100 : max > 0 ? 1 - Math.min(1, cd / max) : 1;
+  const frac = ult !== undefined ? ult / 100 : flasks !== undefined ? 1 : max > 0 ? 1 - Math.min(1, cd / max) : 1;
   const isReady = ready || frac >= 1;
   return (
     <div className="flex flex-col items-center gap-1">
@@ -311,6 +317,11 @@ function SkillBox({
         {ult !== undefined && (
           <div className="absolute right-0 bottom-0 left-0 h-1.5 bg-black/60">
             <div className="h-full" style={{ width: `${ult}%`, background: "#ffd166", boxShadow: "0 0 8px rgba(255,209,102,0.9)" }} />
+          </div>
+        )}
+        {flasks !== undefined && (
+          <div className="font-display absolute top-0.5 right-1 text-[11px] text-[#ff6b8a]" style={{ textShadow: "0 1px 2px #000" }}>
+            ×{flasks}
           </div>
         )}
       </div>

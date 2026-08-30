@@ -1,6 +1,6 @@
 // Игровой контент: главы, героини, классы, апгрейды, гача.
 
-export type EnemyType = "imp" | "spitter" | "brute" | "wraith" | "hound" | "cultist" | "knight" | "boss";
+export type EnemyType = "imp" | "spitter" | "brute" | "wraith" | "hound" | "cultist" | "knight" | "shade" | "golem" | "boss";
 export type MinionType = Exclude<EnemyType, "boss">;
 
 export interface ChapterDef {
@@ -59,9 +59,9 @@ export const CHAPTERS: ChapterDef[] = [
       { list: [{ type: "hound", n: 7 }, { type: "cultist", n: 4 }] },
       { list: [{ type: "brute", n: 3 }, { type: "knight", n: 3 }, { type: "wraith", n: 5 }] },
       { list: [{ type: "cultist", n: 6 }, { type: "hound", n: 6 }, { type: "spitter", n: 4 }] },
-      { list: [{ type: "knight", n: 4 }, { type: "brute", n: 3 }, { type: "wraith", n: 7 }] },
+      { list: [{ type: "knight", n: 4 }, { type: "brute", n: 3 }, { type: "wraith", n: 7 }, { type: "shade", n: 2 }] },
     ],
-    boss: { name: "КАЭЛ", title: "Первосвященник Костей", hp: 2300, kind: "bone" },
+    boss: { name: "КАЭЛ", title: "Первосвященник Костей", hp: 2600, kind: "bone" },
     floor: ["#241229", "#120812"],
     sky: ["#170d20", "#33193f"],
     accent: "#c9a0ff",
@@ -77,9 +77,10 @@ export const CHAPTERS: ChapterDef[] = [
       { list: [{ type: "knight", n: 5 }, { type: "cultist", n: 5 }, { type: "wraith", n: 6 }] },
       { list: [{ type: "hound", n: 10 }, { type: "spitter", n: 6 }, { type: "cultist", n: 4 }] },
       { list: [{ type: "brute", n: 5 }, { type: "knight", n: 5 }, { type: "wraith", n: 8 }] },
-      { list: [{ type: "cultist", n: 8 }, { type: "hound", n: 8 }, { type: "knight", n: 4 }] },
+      { list: [{ type: "cultist", n: 8 }, { type: "hound", n: 8 }, { type: "knight", n: 4 }, { type: "shade", n: 3 }] },
+      { list: [{ type: "golem", n: 2 }, { type: "shade", n: 4 }, { type: "wraith", n: 8 }] },
     ],
-    boss: { name: "НЕЭРА", title: "Королева Стужи", hp: 3000, kind: "frost" },
+    boss: { name: "НЕЭРА", title: "Королева Стужи", hp: 3400, kind: "frost" },
     floor: ["#1c3a52", "#0d1e30"],
     sky: ["#071320", "#14304a"],
     accent: "#9fd8ff",
@@ -95,10 +96,11 @@ export const CHAPTERS: ChapterDef[] = [
       { list: [{ type: "brute", n: 4 }, { type: "wraith", n: 6 }, { type: "cultist", n: 4 }] },
       { list: [{ type: "imp", n: 10 }, { type: "spitter", n: 5 }, { type: "hound", n: 5 }] },
       { list: [{ type: "knight", n: 5 }, { type: "brute", n: 4 }, { type: "wraith", n: 6 }] },
-      { list: [{ type: "wraith", n: 10 }, { type: "brute", n: 4 }, { type: "spitter", n: 5 }] },
-      { list: [{ type: "knight", n: 6 }, { type: "cultist", n: 6 }, { type: "hound", n: 8 }] },
+      { list: [{ type: "wraith", n: 10 }, { type: "brute", n: 4 }, { type: "spitter", n: 5 }, { type: "shade", n: 3 }] },
+      { list: [{ type: "knight", n: 6 }, { type: "cultist", n: 6 }, { type: "hound", n: 8 }, { type: "golem", n: 2 }] },
+      { list: [{ type: "golem", n: 3 }, { type: "shade", n: 5 }, { type: "knight", n: 5 }] },
     ],
-    boss: { name: "ЗЕРРИС", title: "Владыка Демонов", hp: 4000, kind: "demon" },
+    boss: { name: "ЗЕРРИС", title: "Владыка Демонов", hp: 4800, kind: "demon" },
     floor: ["#1d0f14", "#31141c"],
     sky: ["#12060b", "#3a0f18"],
     accent: "#ff5a3c",
@@ -270,7 +272,7 @@ export const CLASSES: ClassDef[] = [
     name: "Рыцарь Клинка",
     title: "Путь стали",
     desc: "+25% к атаке, +25 к макс. стамина. Для тех, кто решает всё в ближнем бою.",
-    skill: "Q — Лунная волна: рассекающий полумесяц",
+    skill: "1 — Лунная волна: рассекающий полумесяц",
     icon: "blade",
     color: "#ff2e4d",
   },
@@ -279,7 +281,7 @@ export const CLASSES: ClassDef[] = [
     name: "Маг Мороза",
     title: "Путь звёзд",
     desc: "+40 к макс. HP. Сам автоматически стреляет ледяными снарядами в ближнего врага.",
-    skill: "Q — Кольцо Мороза: ледяной взрыв вокруг себя",
+    skill: "1 — Кольцо Мороза: ледяной взрыв вокруг себя",
     icon: "star",
     color: "#7cc7ff",
   },
@@ -288,7 +290,7 @@ export const CLASSES: ClassDef[] = [
     name: "Охотник Теней",
     title: "Путь ночи",
     desc: "+60 рун на старте, рывок −30% кд. Быстрый, смертоносный, неуловимый.",
-    skill: "Q — Веер Стрел: три стрелы конусом",
+    skill: "1 — Веер Стрел: три стрелы конусом",
     icon: "wing",
     color: "#35f0d0",
   },
@@ -305,4 +307,6 @@ export const ENEMY_BASE: Record<
   hound: { hp: 56, speed: 220, dmg: 13, r: 14, xp: 12, cry: [1, 3] },
   cultist: { hp: 78, speed: 96, dmg: 15, r: 15, xp: 16, cry: [3, 6] },
   knight: { hp: 230, speed: 88, dmg: 25, r: 19, xp: 28, cry: [5, 10] },
+  shade: { hp: 60, speed: 195, dmg: 18, r: 13, xp: 22, cry: [4, 8] },
+  golem: { hp: 480, speed: 38, dmg: 32, r: 30, xp: 50, cry: [10, 18] },
 };

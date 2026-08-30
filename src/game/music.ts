@@ -330,6 +330,9 @@ function scheduler() {
 export function unlockMusic() {
   const c = ac();
   if (c && c.state === "suspended") c.resume().catch(() => undefined);
+  // Если музыка уже разблокирована и играет — НЕ перезапускаем (иначе темы
+  // наслаиваются при повторных вызовах unlockMusic с кнопок).
+  if (unlocked) return;
   unlocked = true;
   // если тема была выбрана до разблокировки — запускаем её сейчас
   const pending = currentTrack;

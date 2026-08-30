@@ -973,7 +973,7 @@ export class Engine {
     if (this.worldSpawnT <= 0) {
       this.worldSpawnT = 2.6;
       if (this.enemies.length < 6) {
-        const types: Exclude<EnemyType, "boss">[] = ["imp", "imp", "wraith", "spitter", "hound", "cultist"];
+        const types: Exclude<EnemyType, "boss">[] = ["imp", "imp", "wraith", "spitter", "hound", "cultist", "shade", "golem"];
         const a = Math.random() * Math.PI * 2;
         const d = 520 + Math.random() * 340;
         const x = Math.min(Math.max(p.x + Math.cos(a) * d, 60), this.mapW - 60);
@@ -1127,8 +1127,9 @@ export class Engine {
     if (p.stWait <= 0) p.st = Math.min(p.stMax, p.st + 42 * dt);
 
     // souls: фляга Эстуса (F)
-    if (this.keys.has("KeyF") && p.flask > 0 && p.hp < p.maxHp) {
+    if ((this.keys.has("KeyF") || this.keys.has("Digit4")) && p.flask > 0 && p.hp < p.maxHp) {
       this.keys.delete("KeyF");
+      this.keys.delete("Digit4");
       p.flask--;
       const heal = p.maxHp * 0.45;
       p.hp = Math.min(p.maxHp, p.hp + heal);
@@ -1186,7 +1187,7 @@ export class Engine {
     // рывок
     p.dashCd = Math.max(0, p.dashCd - dt);
     p.inv = Math.max(0, p.inv - dt);
-    if ((this.keys.has("Space") || this.keys.has("ShiftLeft")) && p.dashCd <= 0 && p.dashT <= 0 && this.spendSt(24)) {
+    if ((this.keys.has("Space") || this.keys.has("ShiftLeft") || this.keys.has("Digit2")) && p.dashCd <= 0 && p.dashT <= 0 && this.spendSt(24)) {
       p.dashT = 0.16;
       p.dashCd = this.effDashMax();
       p.dashDx = len > 0 ? dx : Math.cos(Math.atan2(this.my - p.y, this.mx - p.x));
@@ -1221,7 +1222,7 @@ export class Engine {
 
     // классовый навык (Q / K)
     p.waveCd = Math.max(0, p.waveCd - dt);
-    if ((this.keys.has("KeyQ") || this.keys.has("KeyK")) && p.waveCd <= 0 && p.ultT <= 0 && this.spendSt(28)) {
+    if ((this.keys.has("KeyQ") || this.keys.has("KeyK") || this.keys.has("Digit1")) && p.waveCd <= 0 && p.ultT <= 0 && this.spendSt(28)) {
       p.waveCd = p.waveMax;
       if (this.classId === "frost") {
         // Кольцо Мороза: ледяной взрыв вокруг героя
@@ -1264,8 +1265,8 @@ export class Engine {
       }
     }
 
-    // ульта (E / L)
-    if ((this.keys.has("KeyE") || this.keys.has("KeyL")) && p.ult >= 100 && p.ultT <= 0) {
+    // ульта (цифра 3) — E освобождена под взаимодействие в мире
+    if (this.keys.has("Digit3") && p.ult >= 100 && p.ultT <= 0) {
       p.ultT = 2.2;
       p.ult = 0;
       p.ultTick = 0;
@@ -2139,10 +2140,15 @@ export class Engine {
     // события-нажатия (атака, рывок, навык, фляга)
     if (this.mouse.down && !this.prevMouseDown) this.pressedBuf.push("ATK");
     this.prevMouseDown = this.mouse.down;
-    if (this.keys.has("Space") && !this.prevKeys.has("Space")) this.pressedBuf.push("DASH");
-    if ((this.keys.has("KeyQ") || this.keys.has("KeyK")) && !this.prevKeys.has("KeyQ") && !this.prevKeys.has("KeyK"))
+    if ((this.keys.has("Space") || this.keys.has("Digit2")) && !this.prevKeys.has("Space") && !this.prevKeys.has("Digit2"))
+      this.pressedBuf.push("DASH");
+    if (
+      (this.keys.has("KeyQ") || this.keys.has("KeyK") || this.keys.has("Digit1")) &&
+      !this.prevKeys.has("KeyQ") && !this.prevKeys.has("KeyK") && !this.prevKeys.has("Digit1")
+    )
       this.pressedBuf.push("SKILL");
-    if (this.keys.has("KeyF") && !this.prevKeys.has("KeyF")) this.pressedBuf.push("FLASK");
+    if ((this.keys.has("KeyF") || this.keys.has("Digit4")) && !this.prevKeys.has("KeyF") && !this.prevKeys.has("Digit4"))
+      this.pressedBuf.push("FLASK");
 
     if (this.inputT >= 0.05) {
       this.inputT = 0;
@@ -2204,9 +2210,9 @@ export class Engine {
 
   private spawnEnemy(type: Exclude<EnemyType, "boss">) {
     const ch = this.chapterIdx;
-    const mul = (1 + ch * 0.5) * (1 + Math.max(0, this.waveIdx) * 0.05);
+    const mul = (1 + ch * 0.62) * (1 + Math.max(0, this.waveIdx) * 0.06);
     const pos = this.edgePos();
-    this.enemies.push(this.makeEnemy(type, pos.x, pos.y, mul, 1 + ch * 0.08, 1 + ch * 0.35, 0.12 + ch * 0.07));
+    this.enemies.push(this.makeEnemy(type, pos.x, pos.y, mul, 1 + ch * 0.1, 1 + ch * 0.42, 0.14 + ch * 0.08));
   }
 
   private spawnBoss() {
@@ -2344,6 +2350,51 @@ export class Engine {
         // бронированный демон-рыцарь: медленный, щит спереди
         mx = nx * e.speed;
         my = ny * e.speed;
+      } else if (e.type === "shade") {
+        // теневой убийца: исчезает, телепортируется за спину, быстро бьёт
+        e.stateT -= dt;
+        if (e.state === "strike") {
+          mx = e.vx;
+          my = e.vy;
+          if (e.stateT <= 0) {
+            e.state = "chase";
+            e.stateT = 0.9 + Math.random() * 0.6;
+            e.vx = 0;
+            e.vy = 0;
+          }
+        } else if (e.state === "vanish") {
+          e.flash = 0.05;
+          if (e.stateT <= 0) {
+            const a = Math.random() * Math.PI * 2;
+            e.x = Math.min(Math.max(p.x + Math.cos(a) * 64, 30), this.vW - 30);
+            e.y = Math.min(Math.max(p.y + Math.sin(a) * 64, this.mode === "world" ? 70 : 110), this.vH - 30);
+            this.burst(e.x, e.y - 8, "#c9a0ff", 8, true);
+            e.state = "strike";
+            e.stateT = 0.26;
+            e.vx = nx * 700;
+            e.vy = ny * 700;
+            sfx.dash();
+          }
+        } else {
+          mx = nx * e.speed;
+          my = ny * e.speed;
+          if (e.stateT <= 0 && dist < 300) {
+            this.burst(e.x, e.y - 8, "#c9a0ff", 8, true);
+            e.state = "vanish";
+            e.stateT = 0.3;
+          }
+        }
+      } else if (e.type === "golem") {
+        // голем-страж: медленный танк, периодически бьёт по площади
+        mx = nx * e.speed;
+        my = ny * e.speed;
+        e.shootCd -= dt;
+        if (e.shootCd <= 0 && dist < 130) {
+          e.shootCd = 3.4;
+          this.addTelegraph(e.x, e.y, 90, 0.8, e.dmg * 1.4, "#ff9f43");
+          this.shake = Math.max(this.shake, 4);
+          sfx.bossRoar();
+        }
       }
 
       // отталкивание врагов друг от друга
