@@ -8,6 +8,8 @@ import { unlockMusic } from "../game/music";
 
 // ---------- аниме key-art (сгенерированные фоны) ----------
 export const ART = {
+  // цельный арт меню: богиня и герой в одной сцене, единый стиль
+  menu: "https://image.qwenlm.ai/generated-images/f5e9a748-46f9-4963-889c-93b85181cca0/_result.png",
   landscape: "https://image.qwenlm.ai/generated-images/31ac0ede-4285-4756-903d-69a61ce49b00/_result.png",
   goddess: "https://image.qwenlm.ai/generated-images/3c2540c4-f68d-4ce8-a59c-ed084de7e10e/_result.png",
   hero: "https://image.qwenlm.ai/generated-images/605232c2-4880-429c-95d4-f564eaffd7a3/_result.png",
@@ -158,7 +160,7 @@ export function TitleScreen({
   totalKills,
   totalSummons,
 }: {
-  onStart: () => void;
+  onStart: (coOp?: boolean) => void;
   onContinue?: () => void;
   best: { level: number; kills: number } | null;
   hasSave: boolean;
@@ -296,22 +298,12 @@ export function TitleScreen({
 
   return (
     <div className="relative h-full w-full overflow-hidden select-none">
-      {/* аниме key-art фон (Ken Burns) */}
-      <div className="anime-bg" style={{ backgroundImage: `url(${ART.landscape})` }} />
-      <div className="absolute inset-0 bg-gradient-to-b from-[#07030d]/70 via-[#07030d]/30 to-[#07030d]/85" />
+      {/* цельный аниме key-art: богиня и герой уже в одной сцене (Ken Burns) */}
+      <div className="anime-bg" style={{ backgroundImage: `url(${ART.menu})` }} />
+      <div className="absolute inset-0 bg-gradient-to-r from-[#07030d]/80 via-[#07030d]/25 to-[#07030d]/45" />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#07030d]/60 via-transparent to-[#07030d]/80" />
       <div className="stripe-overlay" />
       <div className="speed-lines" />
-      <div className="kanji-mark right-4 top-1/2 -translate-y-1/2 text-[11rem]">転生英雄</div>
-
-      {/* парящая богиня справа */}
-      <div className="pointer-events-none absolute right-[2%] bottom-0 z-[5] hidden h-[82%] lg:block">
-        <img
-          src={ART.goddess}
-          alt=""
-          className="float-slow glow-pulse h-full w-auto object-contain object-bottom drop-shadow-[0_0_40px_rgba(255,209,102,0.35)]"
-          style={{ maskImage: "linear-gradient(to top, transparent 0%, black 12%)", WebkitMaskImage: "linear-gradient(to top, transparent 0%, black 12%)" }}
-        />
-      </div>
 
       <div className="relative z-10 flex h-full flex-col items-center justify-center px-6">
         <div className="anim-rise text-center">
@@ -353,6 +345,24 @@ export function TitleScreen({
             }}
           >
             {hasSave ? "Новая игра" : "Начать путь"}
+          </button>
+          <button
+            className="skew-btn ghost flex items-center gap-2.5 px-10 py-3 text-lg"
+            title="Второй игрок за одной клавиатурой: стрелки — движение, Right Shift — атака, Right Ctrl — рывок"
+            onClick={() => {
+              unlockAudio();
+              unlockMusic();
+              sfx.join();
+              onStart(true);
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="8" cy="7" r="3.4" />
+              <path d="M2 20 C2 15 4.5 12.5 8 12.5 C11.5 12.5 14 15 14 20 Z" />
+              <circle cx="16.5" cy="8" r="2.8" opacity="0.85" />
+              <path d="M12 20 C12 16 14 13.5 16.5 13.5 C19.5 13.5 22 16 22 20 Z" opacity="0.85" />
+            </svg>
+            Кооп · 2 игрока
           </button>
           <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-semibold text-[#a98fb8]">
             <span className="hud-chip clip-btn px-3 py-1.5 text-[#ff2e4d]">SOULS-LIKE</span>

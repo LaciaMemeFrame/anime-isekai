@@ -51,6 +51,7 @@ export interface HudSnapshot {
   locked: boolean;
   classId: string;
   lostRunes: number;
+  coOp: boolean;
 }
 
 export interface EngineHandlers {
@@ -456,9 +457,17 @@ export class Engine {
 
   // ============================ public API ============================
 
-  start(classId: string) {
+  start(classId: string, coOp = false) {
     this.classId = classId;
     this.blessingId = classId;
+    this.coOp = coOp;
+    this.p2 = coOp
+      ? {
+          x: 200, y: 300, face: 1, t: 0, hp: 100, maxHp: 100,
+          attackT: -1, comboCd: 0, dashT: 0, dashCd: 0, dashDx: 0, dashDy: 0,
+          inv: 0, deadT: 0, moving: false,
+        }
+      : null;
     const p = this.player;
     p.hp = 100;
     p.maxHp = 100;
@@ -631,6 +640,7 @@ export class Engine {
         this.shake = Math.max(this.shake, 6);
         sfx.wave();
         if (Math.hypot(p.x - tg.x, p.y - tg.y) < tg.r + p.r * 0.5) this.playerHurt(tg.dmg);
+        if (this.p2 && this.p2.deadT <= 0 && Math.hypot(this.p2.x - tg.x, this.p2.y - tg.y) < tg.r) this.hurtP2(tg.dmg * 0.8);
         for (const h of this.heroines) {
           if (Math.hypot(h.x - tg.x, h.y - tg.y) < tg.r) this.burst(h.x, h.y - 10, "#ff6b8a", 6, true);
         }
@@ -1273,6 +1283,7 @@ export class Engine {
     }
 
     this.updateHeroines(dt);
+    if (this.coOp && this.p2) this.updateP2(dt);
     if (this.mode === "battle") this.updateWaves(dt);
     else this.updateWorld(dt);
     this.updateEnemies(dt);
@@ -1689,6 +1700,116 @@ export class Engine {
     return best;
   }
 
+  // ---------- второй игрок (локальный кооп) ----------
+
+  private updateP2(dt: number) {
+    const q = this.p2!;
+    const p = this.player;
+    q.t += dt;
+    q.comboCd -= dt;
+    q.attackT = Math.min(1, q.attackT + dt / 0.3);
+    q.dashCd = Math.max(0, q.dashCd - dt);
+    q.inv = Math.max(0, q.inv - dt);
+
+    // мёртв — ждём возрождения рядом с напарником
+    if (q.deadT > 0) {
+      q.deadT -= dt;
+      if (q.deadT <= 0) {
+        q.hp = q.maxHp;
+        q.x = p.x + 40;
+        q.y = p.y + 40;
+        q.inv = 1.5;
+        this.burst(q.x, q.y - 10, "#7cc7ff", 20, true);
+        sfx.join();
+      }
+      return;
+    }
+
+    // в открытом мире держится рядом с первым игроком
+    let dx = 0;
+    let dy = 0;
+    if (this.mode === "world") {
+      const dxp = p.x - q.x;
+      const dyp = p.y - q.y;
+      const far = Math.hypot(dxp, dyp);
+      if (far > 120) {
+        dx = dxp / (far || 1);
+        dy = dyp / (far || 1);
+      }
+    } else {
+      if (this.keys.has("ArrowLeft")) dx -= 1;
+      if (this.keys.has("ArrowRight")) dx += 1;
+      if (this.keys.has("ArrowUp")) dy -= 1;
+      if (this.keys.has("ArrowDown")) dy += 1;
+    }
+    const len = Math.hypot(dx, dy);
+    q.moving = len > 0;
+    if (len > 0) {
+      dx /= len;
+      dy /= len;
+      if (dx !== 0) q.face = dx > 0 ? 1 : -1;
+    }
+
+    // рывок
+    if ((this.keys.has("ControlRight") || this.keys.has("Numpad0")) && q.dashCd <= 0 && q.dashT <= 0 && len > 0) {
+      q.dashT = 0.16;
+      q.dashCd = 1.2;
+      q.dashDx = dx;
+      q.dashDy = dy;
+      sfx.dash();
+    }
+    if (q.dashT > 0) {
+      q.dashT -= dt;
+      q.x += q.dashDx * 560 * dt;
+      q.y += q.dashDy * 560 * dt;
+      this.parts.push({ x: q.x, y: q.y - 10, vx: 0, vy: 0, life: 0.2, max: 0.2, size: 6, color: "rgba(124,199,255,0.5)", glow: true, grav: 0 });
+    } else {
+      const spd = 230;
+      q.x += dx * spd * dt;
+      q.y += dy * spd * dt;
+    }
+    const topB = this.mode === "world" ? 44 : 96;
+    q.x = Math.min(Math.max(q.x, 26), this.vW - 26);
+    q.y = Math.min(Math.max(q.y, topB), this.vH - 30);
+
+    // атака (Right Shift / Enter / Numpad1)
+    if ((this.keys.has("ShiftRight") || this.keys.has("Enter") || this.keys.has("Numpad1")) && q.comboCd <= 0 && q.attackT >= 0.4) {
+      q.comboCd = 0.42;
+      q.attackT = 0;
+      const tgt = this.nearestEnemy(q.x, q.y, 80);
+      const a = tgt ? Math.atan2(tgt.y - q.y, tgt.x - q.x) : q.face === 1 ? 0 : Math.PI;
+      if (Math.cos(a) !== 0) q.face = Math.cos(a) >= 0 ? 1 : -1;
+      this.arcs.push({ x: q.x + Math.cos(a) * 30, y: q.y - 6, ang: a, spread: 1.5, r: 52, life: 0.15, max: 0.15, color: "#7cc7ff", width: 4 });
+      sfx.slash();
+      for (const e of this.enemies) {
+        if (e.hp <= 0) continue;
+        const d = Math.hypot(e.x - q.x, e.y - q.y);
+        if (d < 84 + e.r) {
+          const ea = Math.atan2(e.y - q.y, e.x - q.x);
+          let diff = Math.abs(ea - a);
+          if (diff > Math.PI) diff = Math.PI * 2 - diff;
+          if (diff < 1.2) this.hurtEnemy(e, this.effAtk() * 0.9, false, Math.cos(ea) * 120, Math.sin(ea) * 120);
+        }
+      }
+    }
+  }
+
+  private hurtP2(dmg: number) {
+    const q = this.p2!;
+    if (q.inv > 0 || q.dashT > 0 || q.deadT > 0) return;
+    q.hp -= dmg;
+    q.inv = 0.8;
+    this.burst(q.x, q.y - 10, "#7cc7ff", 6, true);
+    sfx.hit();
+    if (q.hp <= 0) {
+      q.hp = 0;
+      q.deadT = 5;
+      this.burst(q.x, q.y - 10, "#7cc7ff", 24, true);
+      this.floats.push({ x: q.x, y: q.y - 40, life: 1, max: 1, text: "P2 ПАЛ — 5с", color: "#7cc7ff", size: 15 });
+      sfx.hurt();
+    }
+  }
+
   // ---------- волны ----------
 
   private updateWaves(dt: number) {
@@ -1906,6 +2027,11 @@ export class Engine {
         e.touchCd = 0.9;
         this.playerHurt(e.dmg);
       }
+      // урон второму игроку
+      if (this.p2 && this.p2.deadT <= 0) {
+        const d2 = Math.hypot(e.x - this.p2.x, e.y - this.p2.y);
+        if (d2 < e.r + 16 && e.touchCd <= 0.45) this.hurtP2(e.dmg * 0.8);
+      }
     }
     this.enemies = this.enemies.filter((e) => e.hp > 0);
     if (this.mode === "world") {
@@ -2073,6 +2199,9 @@ export class Engine {
       if (pr.from === "foe") {
         if (Math.hypot(pr.x - p.x, pr.y - (p.y - 6)) < pr.r + p.r) {
           this.playerHurt(pr.dmg);
+          pr.life = 0;
+        } else if (this.p2 && this.p2.deadT <= 0 && Math.hypot(pr.x - this.p2.x, pr.y - (this.p2.y - 6)) < pr.r + 16) {
+          this.hurtP2(pr.dmg * 0.8);
           pr.life = 0;
         }
       } else {
@@ -2308,6 +2437,35 @@ export class Engine {
           }),
       });
     }
+
+    // второй игрок (кооп)
+    if (this.p2 && this.p2.deadT <= 0) {
+      const q = this.p2;
+      drawables.push({
+        y: q.y,
+        draw: () => {
+          ctx.save();
+          if (q.inv > 0 && Math.floor(q.t * 18) % 2 === 0) ctx.globalAlpha = 0.45;
+          drawChibi(ctx, {
+            x: q.x, y: q.y, scale: 1.0, t: q.t, face: q.face, moving: q.moving,
+            attack: q.attackT < 1 ? q.attackT : -1, invuln: q.inv > 0,
+            palette: { hair: "#7cc7ff", hairDark: "#3a7ab8", skin: "#ffe3d3", dress: "#1d4a8f", accent: "#bfe6ff", eyes: "#4dc9ff" },
+            style: "spiky", weapon: "blade", glow: "#7cc7ff",
+          });
+          ctx.restore();
+          // полоса HP и метка P2
+          ctx.fillStyle = "rgba(0,0,0,0.5)";
+          ctx.fillRect(q.x - 18, q.y - 46, 36, 5);
+          ctx.fillStyle = "#7cc7ff";
+          ctx.fillRect(q.x - 18, q.y - 46, 36 * Math.max(0, q.hp / q.maxHp), 5);
+          ctx.font = '9px "Russo One"';
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#7cc7ff";
+          ctx.fillText("P2", q.x, q.y - 50);
+        },
+      });
+    }
+
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
 
