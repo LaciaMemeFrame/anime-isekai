@@ -60,6 +60,7 @@ export default function App() {
   const [summons, setSummons] = useState(0);
   const [muted, setMutedState] = useState(isMuted());
   const [resumeSave, setResumeSave] = useState<RunSave | null>(null);
+  const [coOp, setCoOp] = useState(false);
 
   const saveMeta = useCallback((patch: Partial<Meta>) => {
     setMeta((prev) => {
@@ -104,10 +105,11 @@ export default function App() {
           hasSave={loadSave() !== null}
           totalKills={meta.totalKills}
           totalSummons={meta.totalSummons}
-          onStart={() => {
+          onStart={(co) => {
             startAmbient();
             clearRunSave();
             setResumeSave(null);
+            setCoOp(!!co);
             setRunId((r) => r + 1);
             setSummons(0);
             setPhase("intro");
@@ -168,6 +170,7 @@ export default function App() {
       key={runId}
       gift={gift}
       resumeSave={resumeSave}
+      coOp={coOp}
       muted={muted}
       onToggleMute={toggleMute}
       onSummoned={(n: number) => {
@@ -208,6 +211,7 @@ export default function App() {
 function GameView({
   gift,
   resumeSave,
+  coOp,
   muted,
   onToggleMute,
   onSummoned,
@@ -218,6 +222,7 @@ function GameView({
 }: {
   gift: string;
   resumeSave: RunSave | null;
+  coOp: boolean;
   muted: boolean;
   onToggleMute: () => void;
   onSummoned: (n: number) => void;
@@ -264,7 +269,7 @@ function GameView({
     });
     engineRef.current = engine;
     if (resumeSave) engine.loadSave(resumeSave);
-    else engine.start(gift);
+    else engine.start(gift, coOp);
     unlockAudio();
     unlockMusic();
     startAmbient();

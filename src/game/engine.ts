@@ -51,6 +51,7 @@ export interface HudSnapshot {
   locked: boolean;
   classId: string;
   lostRunes: number;
+  coOp: boolean;
 }
 
 export interface EngineHandlers {
@@ -166,6 +167,15 @@ interface HeroineUnit {
   lunge: number;
   tx: number;
   ty: number;
+  // плавная таймлайн-анимация атаки: 0..1, -1 = покой
+  anim: number;
+  dur: number;
+  ox: number;
+  oy: number;
+  ax: number;
+  ay: number;
+  struck: boolean;
+  fired: boolean;
 }
 
 interface Bonuses {
@@ -313,6 +323,15 @@ export class Engine {
   private arcs: Arc[] = [];
   private heroines: HeroineUnit[] = [];
 
+  // ---- локальный кооператив (второй игрок за одной клавиатурой) ----
+  private coOp = false;
+  private p2: {
+    x: number; y: number; face: 1 | -1; t: number;
+    hp: number; maxHp: number; attackT: number; comboCd: number;
+    dashT: number; dashCd: number; dashDx: number; dashDy: number;
+    inv: number; deadT: number; moving: boolean;
+  } | null = null;
+
   private chapterIdx = 0;
   private waveIdx = -1;
   private spawnQueue: Exclude<EnemyType, "boss">[] = [];
@@ -438,9 +457,17 @@ export class Engine {
 
   // ============================ public API ============================
 
-  start(classId: string) {
+  start(classId: string, coOp = false) {
     this.classId = classId;
     this.blessingId = classId;
+    this.coOp = coOp;
+    this.p2 = coOp
+      ? {
+          x: 200, y: 300, face: 1, t: 0, hp: 100, maxHp: 100,
+          attackT: -1, comboCd: 0, dashT: 0, dashCd: 0, dashDx: 0, dashDy: 0,
+          inv: 0, deadT: 0, moving: false,
+        }
+      : null;
     const p = this.player;
     p.hp = 100;
     p.maxHp = 100;
@@ -613,6 +640,7 @@ export class Engine {
         this.shake = Math.max(this.shake, 6);
         sfx.wave();
         if (Math.hypot(p.x - tg.x, p.y - tg.y) < tg.r + p.r * 0.5) this.playerHurt(tg.dmg);
+        if (this.p2 && this.p2.deadT <= 0 && Math.hypot(this.p2.x - tg.x, this.p2.y - tg.y) < tg.r) this.hurtP2(tg.dmg * 0.8);
         for (const h of this.heroines) {
           if (Math.hypot(h.x - tg.x, h.y - tg.y) < tg.r) this.burst(h.x, h.y - 10, "#ff6b8a", 6, true);
         }
@@ -1045,6 +1073,14 @@ export class Engine {
       t: Math.random() * 10,
       atkT: 1 + Math.random(),
       lunge: 0,
+      anim: -1,
+      dur: 0.6,
+      ox: this.player.x,
+      oy: this.player.y,
+      ax: this.player.x,
+      ay: this.player.y,
+      struck: false,
+      fired: false,
       tx: this.player.x,
       ty: this.player.y,
     });
@@ -1247,6 +1283,7 @@ export class Engine {
     }
 
     this.updateHeroines(dt);
+    if (this.coOp && this.p2) this.updateP2(dt);
     if (this.mode === "battle") this.updateWaves(dt);
     else this.updateWorld(dt);
     this.updateEnemies(dt);
@@ -1508,6 +1545,8 @@ export class Engine {
       [52, 34],
       [0, 60],
     ];
+    const easeOut = (x: number) => 1 - Math.pow(1 - x, 3);
+    const easeIn = (x: number) => x * x * x;
     this.heroines.forEach((h, i) => {
       h.t += dt;
       h.atkT -= dt;
@@ -1515,22 +1554,76 @@ export class Engine {
       const sx = p.x + slot[0];
       const sy = p.y + slot[1];
 
-      if (h.lunge > 0) {
-        // плавный рывок к цели и обратно — никакого телепорта
-        h.lunge = Math.max(0, h.lunge - dt * 3.4);
-        const phase = h.lunge; // 1 → 0
-        if (phase > 0.5) {
-          const k = Math.min(1, dt * 14);
-          h.x += (h.tx - h.x) * k;
-          h.y += (h.ty - h.y) * k;
+      // ---- активная анимация атаки по таймлайну ----
+      if (h.anim >= 0) {
+        h.anim = Math.min(1, h.anim + dt / h.dur);
+        const a = h.anim;
+        const w = h.def.weapon;
+        if (w === "blade") {
+          // 0→0.16 замах (чуть назад), 0.16→0.42 рывок к цели, 0.42→1 возврат
+          if (a < 0.16) {
+            const k = easeIn(a / 0.16);
+            const bx = h.ox - (h.ax - h.ox) * 0.12;
+            const by = h.oy - (h.ay - h.oy) * 0.12;
+            h.x = h.ox + (bx - h.ox) * k;
+            h.y = h.oy + (by - h.oy) * k;
+          } else if (a < 0.42) {
+            const k = easeOut((a - 0.16) / 0.26);
+            const bx = h.ox - (h.ax - h.ox) * 0.12;
+            const by = h.oy - (h.ay - h.oy) * 0.12;
+            h.x = bx + (h.ax - bx) * k;
+            h.y = by + (h.ay - by) * k;
+            // послесвечение-шлейф
+            this.parts.push({ x: h.x, y: h.y - 10, vx: 0, vy: 0, life: 0.22, max: 0.22, size: 7, color: `${h.def.glow}66`, glow: true, grav: 0 });
+            if (!h.struck && k > 0.75) {
+              h.struck = true;
+              const ang = Math.atan2(h.ay - h.y, h.ax - h.x);
+              this.arcs.push({ x: h.ax, y: h.ay - 6, ang, spread: 2.1, r: 66, life: 0.2, max: 0.2, color: h.def.glow, width: 4.5 });
+              const tgt = this.nearestEnemy(h.ax, h.ay, 70);
+              if (tgt) {
+                this.hurtEnemy(tgt, this.effAtk() * 1.1, false, Math.cos(ang) * 130, Math.sin(ang) * 130);
+                this.burst(h.ax, h.ay - 8, h.def.glow, 8, true);
+              }
+              sfx.slash();
+              this.hitstop = Math.max(this.hitstop, 0.02);
+            }
+          } else {
+            const k = easeOut((a - 0.42) / 0.58);
+            h.x = h.ax + (sx - h.ax) * k;
+            h.y = h.ay + (sy - h.ay) * k;
+          }
+        } else if (w === "bow") {
+          // лёгкий отшаг назад, натяжение, выстрел на 0.34, возврат
+          if (a < 0.34) {
+            const k = Math.sin((a / 0.34) * Math.PI);
+            h.x = h.ox - (h.ax - h.ox) * 0.08 * k;
+            h.y = h.oy - (h.ay - h.oy) * 0.08 * k;
+            if (!h.fired && a >= 0.3) {
+              h.fired = true;
+              const ang = Math.atan2(h.ay - h.y, h.ax - h.x);
+              this.projs.push({
+                x: h.x, y: h.y - 12, vx: Math.cos(ang) * 620, vy: Math.sin(ang) * 620,
+                r: 8, dmg: this.effAtk() * 0.75, from: "ally", life: 0.9,
+                color: h.def.glow, kind: "arrow", pierce: 3, hits: new Set(),
+              });
+              sfx.arrow();
+            }
+          } else {
+            const k = easeOut((a - 0.34) / 0.66);
+            h.x = h.x + (sx - h.x) * k * 0.2;
+            h.y = h.y + (sy - h.y) * k * 0.2;
+          }
         } else {
-          const k = Math.min(1, dt * 7);
-          h.x += (sx - h.x) * k;
-          h.y += (sy - h.y) * k;
+          // посох: парит вверх, вспышка на 0.38, опускается
+          const lift = Math.sin(a * Math.PI);
+          h.x = h.ox + (sx - h.ox) * a;
+          h.y = h.oy - 26 * lift + (sy - h.oy) * a * 0.4;
+          if (!h.fired && a >= 0.38) {
+            h.fired = true;
+            this.doStaffAction(h);
+          }
         }
-        if (Math.random() < dt * 30) {
-          this.parts.push({ x: h.x, y: h.y - 8, vx: 0, vy: -20, life: 0.25, max: 0.25, size: 5, color: `${h.def.glow}88`, glow: true, grav: 0 });
-        }
+        if (a >= 1) h.anim = -1;
         return;
       }
 
@@ -1539,53 +1632,58 @@ export class Engine {
       h.y += (sy - h.y) * k;
       if (h.atkT > 0) return;
 
+      // ---- запуск атаки ----
       const w = h.def.weapon;
+      const startAnim = (tx: number, ty: number, dur: number) => {
+        h.anim = 0;
+        h.dur = dur;
+        h.ox = h.x;
+        h.oy = h.y;
+        h.ax = tx;
+        h.ay = ty;
+        h.struck = false;
+        h.fired = false;
+      };
       if (w === "blade") {
         const target = this.nearestEnemy(h.x, h.y, 260);
         if (!target) return;
         h.atkT = 1.15;
-        h.tx = target.x;
-        h.ty = target.y;
-        h.lunge = 1;
-        const a = Math.atan2(target.y - h.y, target.x - h.x);
-        this.arcs.push({ x: target.x, y: target.y - 6, ang: a, spread: 1.9, r: 62, life: 0.16, max: 0.16, color: h.def.glow, width: 4 });
-        this.hurtEnemy(target, this.effAtk() * 1.1, false, Math.cos(a) * 120, Math.sin(a) * 120);
-        sfx.slash();
+        const reach = Math.max(24, Math.hypot(target.x - h.x, target.y - h.y) - target.r - 8);
+        const ang = Math.atan2(target.y - h.y, target.x - h.x);
+        startAnim(h.x + Math.cos(ang) * reach, h.y + Math.sin(ang) * reach, 0.62);
       } else if (w === "bow") {
         const target = this.nearestEnemy(h.x, h.y, 440);
         if (!target) return;
         h.atkT = 1.35;
-        h.lunge = 1;
-        const a = Math.atan2(target.y - h.y, target.x - h.x);
-        this.projs.push({
-          x: h.x, y: h.y - 12, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620,
-          r: 8, dmg: this.effAtk() * 0.75, from: "ally", life: 0.9,
-          color: h.def.glow, kind: "arrow", pierce: 3, hits: new Set(),
-        });
-        sfx.arrow();
+        startAnim(target.x, target.y, 0.7);
       } else {
         h.atkT = 2.4;
-        h.lunge = 1;
-        if (p.hp < p.maxHp * 0.78) {
-          const heal = p.maxHp * 0.085;
-          p.hp = Math.min(p.maxHp, p.hp + heal);
-          this.floats.push({ x: p.x, y: p.y - 30, life: 0.8, max: 0.8, text: `+${Math.round(heal)}`, color: "#7bffce", size: 17 });
-          this.burst(p.x, p.y - 14, "#7bffce", 10, true);
-          sfx.heal();
-        } else {
-          const target = this.nearestEnemy(h.x, h.y, 380);
-          if (target) {
-            const a = Math.atan2(target.y - h.y, target.x - h.x);
-            this.projs.push({
-              x: h.x, y: h.y - 14, vx: Math.cos(a) * 460, vy: Math.sin(a) * 460,
-              r: 9, dmg: this.effAtk() * 0.6, from: "ally", life: 1,
-              color: "#35f0d0", kind: "bolt", pierce: 1, hits: new Set(),
-            });
-            sfx.magic();
-          }
-        }
+        startAnim(sx, sy, 0.95);
       }
     });
+  }
+
+  private doStaffAction(h: HeroineUnit) {
+    const p = this.player;
+    this.arcs.push({ x: h.x, y: h.y - 14, ang: 0, spread: Math.PI * 2, r: 44, life: 0.3, max: 0.3, color: h.def.glow, width: 3 });
+    if (p.hp < p.maxHp * 0.78) {
+      const heal = p.maxHp * 0.085;
+      p.hp = Math.min(p.maxHp, p.hp + heal);
+      this.floats.push({ x: p.x, y: p.y - 30, life: 0.8, max: 0.8, text: `+${Math.round(heal)}`, color: "#7bffce", size: 17 });
+      this.burst(p.x, p.y - 14, "#7bffce", 10, true);
+      sfx.heal();
+    } else {
+      const target = this.nearestEnemy(h.x, h.y, 380);
+      if (target) {
+        const a = Math.atan2(target.y - h.y, target.x - h.x);
+        this.projs.push({
+          x: h.x, y: h.y - 14, vx: Math.cos(a) * 460, vy: Math.sin(a) * 460,
+          r: 9, dmg: this.effAtk() * 0.6, from: "ally", life: 1,
+          color: "#35f0d0", kind: "bolt", pierce: 1, hits: new Set(),
+        });
+        sfx.magic();
+      }
+    }
   }
 
   private nearestEnemy(x: number, y: number, maxDist: number): Enemy | null {
@@ -1600,6 +1698,116 @@ export class Engine {
       }
     }
     return best;
+  }
+
+  // ---------- второй игрок (локальный кооп) ----------
+
+  private updateP2(dt: number) {
+    const q = this.p2!;
+    const p = this.player;
+    q.t += dt;
+    q.comboCd -= dt;
+    q.attackT = Math.min(1, q.attackT + dt / 0.3);
+    q.dashCd = Math.max(0, q.dashCd - dt);
+    q.inv = Math.max(0, q.inv - dt);
+
+    // мёртв — ждём возрождения рядом с напарником
+    if (q.deadT > 0) {
+      q.deadT -= dt;
+      if (q.deadT <= 0) {
+        q.hp = q.maxHp;
+        q.x = p.x + 40;
+        q.y = p.y + 40;
+        q.inv = 1.5;
+        this.burst(q.x, q.y - 10, "#7cc7ff", 20, true);
+        sfx.join();
+      }
+      return;
+    }
+
+    // в открытом мире держится рядом с первым игроком
+    let dx = 0;
+    let dy = 0;
+    if (this.mode === "world") {
+      const dxp = p.x - q.x;
+      const dyp = p.y - q.y;
+      const far = Math.hypot(dxp, dyp);
+      if (far > 120) {
+        dx = dxp / (far || 1);
+        dy = dyp / (far || 1);
+      }
+    } else {
+      if (this.keys.has("ArrowLeft")) dx -= 1;
+      if (this.keys.has("ArrowRight")) dx += 1;
+      if (this.keys.has("ArrowUp")) dy -= 1;
+      if (this.keys.has("ArrowDown")) dy += 1;
+    }
+    const len = Math.hypot(dx, dy);
+    q.moving = len > 0;
+    if (len > 0) {
+      dx /= len;
+      dy /= len;
+      if (dx !== 0) q.face = dx > 0 ? 1 : -1;
+    }
+
+    // рывок
+    if ((this.keys.has("ControlRight") || this.keys.has("Numpad0")) && q.dashCd <= 0 && q.dashT <= 0 && len > 0) {
+      q.dashT = 0.16;
+      q.dashCd = 1.2;
+      q.dashDx = dx;
+      q.dashDy = dy;
+      sfx.dash();
+    }
+    if (q.dashT > 0) {
+      q.dashT -= dt;
+      q.x += q.dashDx * 560 * dt;
+      q.y += q.dashDy * 560 * dt;
+      this.parts.push({ x: q.x, y: q.y - 10, vx: 0, vy: 0, life: 0.2, max: 0.2, size: 6, color: "rgba(124,199,255,0.5)", glow: true, grav: 0 });
+    } else {
+      const spd = 230;
+      q.x += dx * spd * dt;
+      q.y += dy * spd * dt;
+    }
+    const topB = this.mode === "world" ? 44 : 96;
+    q.x = Math.min(Math.max(q.x, 26), this.vW - 26);
+    q.y = Math.min(Math.max(q.y, topB), this.vH - 30);
+
+    // атака (Right Shift / Enter / Numpad1)
+    if ((this.keys.has("ShiftRight") || this.keys.has("Enter") || this.keys.has("Numpad1")) && q.comboCd <= 0 && q.attackT >= 0.4) {
+      q.comboCd = 0.42;
+      q.attackT = 0;
+      const tgt = this.nearestEnemy(q.x, q.y, 80);
+      const a = tgt ? Math.atan2(tgt.y - q.y, tgt.x - q.x) : q.face === 1 ? 0 : Math.PI;
+      if (Math.cos(a) !== 0) q.face = Math.cos(a) >= 0 ? 1 : -1;
+      this.arcs.push({ x: q.x + Math.cos(a) * 30, y: q.y - 6, ang: a, spread: 1.5, r: 52, life: 0.15, max: 0.15, color: "#7cc7ff", width: 4 });
+      sfx.slash();
+      for (const e of this.enemies) {
+        if (e.hp <= 0) continue;
+        const d = Math.hypot(e.x - q.x, e.y - q.y);
+        if (d < 84 + e.r) {
+          const ea = Math.atan2(e.y - q.y, e.x - q.x);
+          let diff = Math.abs(ea - a);
+          if (diff > Math.PI) diff = Math.PI * 2 - diff;
+          if (diff < 1.2) this.hurtEnemy(e, this.effAtk() * 0.9, false, Math.cos(ea) * 120, Math.sin(ea) * 120);
+        }
+      }
+    }
+  }
+
+  private hurtP2(dmg: number) {
+    const q = this.p2!;
+    if (q.inv > 0 || q.dashT > 0 || q.deadT > 0) return;
+    q.hp -= dmg;
+    q.inv = 0.8;
+    this.burst(q.x, q.y - 10, "#7cc7ff", 6, true);
+    sfx.hit();
+    if (q.hp <= 0) {
+      q.hp = 0;
+      q.deadT = 5;
+      this.burst(q.x, q.y - 10, "#7cc7ff", 24, true);
+      this.floats.push({ x: q.x, y: q.y - 40, life: 1, max: 1, text: "P2 ПАЛ — 5с", color: "#7cc7ff", size: 15 });
+      sfx.hurt();
+    }
   }
 
   // ---------- волны ----------
@@ -1819,6 +2027,11 @@ export class Engine {
         e.touchCd = 0.9;
         this.playerHurt(e.dmg);
       }
+      // урон второму игроку
+      if (this.p2 && this.p2.deadT <= 0) {
+        const d2 = Math.hypot(e.x - this.p2.x, e.y - this.p2.y);
+        if (d2 < e.r + 16 && e.touchCd <= 0.45) this.hurtP2(e.dmg * 0.8);
+      }
     }
     this.enemies = this.enemies.filter((e) => e.hp > 0);
     if (this.mode === "world") {
@@ -1986,6 +2199,9 @@ export class Engine {
       if (pr.from === "foe") {
         if (Math.hypot(pr.x - p.x, pr.y - (p.y - 6)) < pr.r + p.r) {
           this.playerHurt(pr.dmg);
+          pr.life = 0;
+        } else if (this.p2 && this.p2.deadT <= 0 && Math.hypot(pr.x - this.p2.x, pr.y - (this.p2.y - 6)) < pr.r + 16) {
+          this.hurtP2(pr.dmg * 0.8);
           pr.life = 0;
         }
       } else {
@@ -2193,10 +2409,16 @@ export class Engine {
         y: h.y,
         draw: () => {
           const def = h.def;
+          let pose = -1;
+          if (h.anim >= 0) {
+            const a = h.anim;
+            pose = a < 0.16 ? -0.4 * (a / 0.16) : Math.min(1, (a - 0.16) / 0.3);
+            if (a > 0.6) pose = 1 - (a - 0.6) / 0.4;
+          }
           drawChibi(ctx, {
             x: h.x, y: h.y, scale: 0.95, t: h.t,
-            face: h.tx >= h.x ? 1 : -1, moving: h.lunge > 0,
-            attack: h.lunge > 0 ? 1 - h.lunge : -1,
+            face: h.ax >= h.x ? 1 : -1, moving: h.anim < 0,
+            attack: pose,
             palette: { hair: def.hair, hairDark: def.hairDark, skin: def.skin, dress: def.dress, accent: def.accent, eyes: def.eyes },
             style: def.style, weapon: def.weapon, glow: def.glow,
           });
@@ -2215,6 +2437,35 @@ export class Engine {
           }),
       });
     }
+
+    // второй игрок (кооп)
+    if (this.p2 && this.p2.deadT <= 0) {
+      const q = this.p2;
+      drawables.push({
+        y: q.y,
+        draw: () => {
+          ctx.save();
+          if (q.inv > 0 && Math.floor(q.t * 18) % 2 === 0) ctx.globalAlpha = 0.45;
+          drawChibi(ctx, {
+            x: q.x, y: q.y, scale: 1.0, t: q.t, face: q.face, moving: q.moving,
+            attack: q.attackT < 1 ? q.attackT : -1, invuln: q.inv > 0,
+            palette: { hair: "#7cc7ff", hairDark: "#3a7ab8", skin: "#ffe3d3", dress: "#1d4a8f", accent: "#bfe6ff", eyes: "#4dc9ff" },
+            style: "spiky", weapon: "blade", glow: "#7cc7ff",
+          });
+          ctx.restore();
+          // полоса HP и метка P2
+          ctx.fillStyle = "rgba(0,0,0,0.5)";
+          ctx.fillRect(q.x - 18, q.y - 46, 36, 5);
+          ctx.fillStyle = "#7cc7ff";
+          ctx.fillRect(q.x - 18, q.y - 46, 36 * Math.max(0, q.hp / q.maxHp), 5);
+          ctx.font = '9px "Russo One"';
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#7cc7ff";
+          ctx.fillText("P2", q.x, q.y - 50);
+        },
+      });
+    }
+
     drawables.sort((a, b) => a.y - b.y);
     for (const d of drawables) d.draw();
 
