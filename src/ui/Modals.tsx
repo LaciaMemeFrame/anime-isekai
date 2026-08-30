@@ -63,9 +63,11 @@ export function PauseOverlay({
         <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-[#cbb8d8]">
           <div><b className="font-display text-[#ffd166]">WASD</b> — движение</div>
           <div><b className="font-display text-[#ffd166]">ЛКМ / J</b> — атака (стамина)</div>
-          <div><b className="font-display text-[#ffd166]">SPACE</b> — рывок</div>
-          <div><b className="font-display text-[#ffd166]">Q / K</b> — навык класса</div>
-          <div><b className="font-display text-[#ffd166]">E / L</b> — ярость · <b className="font-display text-[#ffd166]">F</b> — фляга</div>
+          <div><b className="font-display text-[#ffd166]">1</b> — навык класса</div>
+          <div><b className="font-display text-[#ffd166]">2</b> — рывок</div>
+          <div><b className="font-display text-[#ffd166]">3</b> — ярость (ульта)</div>
+          <div><b className="font-display text-[#ffd166]">4</b> — фляга Эстуса</div>
+          <div><b className="font-display text-[#ffd166]">E</b> — взаимодействие</div>
           <div><b className="font-display text-[#ffd166]">TAB / ПКМ</b> — захват цели</div>
         </div>
         <a href="https://t.me/pixsetup" target="_blank" rel="noreferrer" className="tg-link clip-btn mt-5 flex items-center gap-2 px-4 py-2 text-xs">

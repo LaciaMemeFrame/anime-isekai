@@ -377,9 +377,11 @@ export function TitleScreen({
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">WASD</b> движение</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">ЛКМ / J</b> атака (комбо)</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">SPACE</b> рывок</div>
-          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">Q</b> навык класса</div>
-          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">E</b> ярость героя</div>
-          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">F</b> фляга Эстуса</div>
+          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">1</b> навык класса</div>
+          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">2</b> рывок</div>
+          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">3</b> ярость (ульта)</div>
+          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">4</b> фляга Эстуса</div>
+          <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">E</b> взаимодействие</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">TAB / ПКМ</b> захват цели</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">ESC</b> пауза</div>
           <div className="flex items-center gap-2"><b className="font-display text-[#ffd166]">M</b> звук</div>

@@ -287,6 +287,8 @@ const DEMON_COLORS: Record<string, { body: [string, string]; eye: string; horn: 
   knight: { body: ["#5a6478", "#1c202c"], eye: "#ff2e4d", horn: "#10131c" },
   bone: { body: ["#e8e0d0", "#4a3f55"], eye: "#c9a0ff", horn: "#2c2438" },
   frost: { body: ["#cfeaff", "#2a5a8f"], eye: "#9fd8ff", horn: "#123050" },
+  shade: { body: ["#4a2a6a", "#180a28"], eye: "#e0a0ff", horn: "#2a1240" },
+  golem: { body: ["#8a7a6a", "#3d342c"], eye: "#ff9f43", horn: "#2c241c" },
 };
 
 export function drawDemon(
@@ -486,6 +488,53 @@ export function drawDemon(
     ctx.lineTo(3 * s, -3 * s);
     ctx.stroke();
     ctx.restore();
+  }
+
+  // теневой убийца: дымный шлейф и капюшон
+  if (o.type === "shade") {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 3; i++) {
+      const wx = -(o.face ?? 1) * (8 + i * 7) * s;
+      const wy = -2 * s + hop + Math.sin(t * 5 + i) * 3 * s;
+      const wg = ctx.createRadialGradient(wx, wy, 1, wx, wy, 9 * s);
+      wg.addColorStop(0, "rgba(224,160,255,0.28)");
+      wg.addColorStop(1, "rgba(224,160,255,0)");
+      ctx.fillStyle = wg;
+      ctx.beginPath();
+      ctx.arc(wx, wy, 9 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    // острый капюшон
+    ctx.fillStyle = "#180a28";
+    ctx.beginPath();
+    ctx.moveTo(-9 * s, -8 * s + hop);
+    ctx.quadraticCurveTo(0, -24 * s + hop, 9 * s, -8 * s + hop);
+    ctx.quadraticCurveTo(0, -14 * s + hop, -9 * s, -8 * s + hop);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // голем: трещины и раскалённое ядро
+  if (o.type === "golem") {
+    ctx.strokeStyle = "rgba(255,159,67,0.75)";
+    ctx.lineWidth = 1.6 * s;
+    ctx.beginPath();
+    ctx.moveTo(-6 * s, -10 * s + hop);
+    ctx.lineTo(-2 * s, -3 * s + hop);
+    ctx.lineTo(-5 * s, 4 * s + hop);
+    ctx.moveTo(5 * s, -8 * s + hop);
+    ctx.lineTo(2 * s, 0 + hop);
+    ctx.lineTo(6 * s, 6 * s + hop);
+    ctx.stroke();
+    const core = ctx.createRadialGradient(0, -2 * s + hop, 1, 0, -2 * s + hop, 7 * s);
+    core.addColorStop(0, "rgba(255,200,80,0.9)");
+    core.addColorStop(1, "rgba(255,120,40,0)");
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(0, -2 * s + hop, 7 * s, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   // пасть плевателя
