@@ -166,6 +166,15 @@ interface HeroineUnit {
   lunge: number;
   tx: number;
   ty: number;
+  // плавная таймлайн-анимация атаки: 0..1, -1 = покой
+  anim: number;
+  dur: number;
+  ox: number;
+  oy: number;
+  ax: number;
+  ay: number;
+  struck: boolean;
+  fired: boolean;
 }
 
 interface Bonuses {
@@ -312,6 +321,15 @@ export class Engine {
   private picks: Pickup[] = [];
   private arcs: Arc[] = [];
   private heroines: HeroineUnit[] = [];
+
+  // ---- локальный кооператив (второй игрок за одной клавиатурой) ----
+  private coOp = false;
+  private p2: {
+    x: number; y: number; face: 1 | -1; t: number;
+    hp: number; maxHp: number; attackT: number; comboCd: number;
+    dashT: number; dashCd: number; dashDx: number; dashDy: number;
+    inv: number; deadT: number; moving: boolean;
+  } | null = null;
 
   private chapterIdx = 0;
   private waveIdx = -1;
@@ -1045,6 +1063,14 @@ export class Engine {
       t: Math.random() * 10,
       atkT: 1 + Math.random(),
       lunge: 0,
+      anim: -1,
+      dur: 0.6,
+      ox: this.player.x,
+      oy: this.player.y,
+      ax: this.player.x,
+      ay: this.player.y,
+      struck: false,
+      fired: false,
       tx: this.player.x,
       ty: this.player.y,
     });
@@ -1508,6 +1534,8 @@ export class Engine {
       [52, 34],
       [0, 60],
     ];
+    const easeOut = (x: number) => 1 - Math.pow(1 - x, 3);
+    const easeIn = (x: number) => x * x * x;
     this.heroines.forEach((h, i) => {
       h.t += dt;
       h.atkT -= dt;
@@ -1515,22 +1543,76 @@ export class Engine {
       const sx = p.x + slot[0];
       const sy = p.y + slot[1];
 
-      if (h.lunge > 0) {
-        // плавный рывок к цели и обратно — никакого телепорта
-        h.lunge = Math.max(0, h.lunge - dt * 3.4);
-        const phase = h.lunge; // 1 → 0
-        if (phase > 0.5) {
-          const k = Math.min(1, dt * 14);
-          h.x += (h.tx - h.x) * k;
-          h.y += (h.ty - h.y) * k;
+      // ---- активная анимация атаки по таймлайну ----
+      if (h.anim >= 0) {
+        h.anim = Math.min(1, h.anim + dt / h.dur);
+        const a = h.anim;
+        const w = h.def.weapon;
+        if (w === "blade") {
+          // 0→0.16 замах (чуть назад), 0.16→0.42 рывок к цели, 0.42→1 возврат
+          if (a < 0.16) {
+            const k = easeIn(a / 0.16);
+            const bx = h.ox - (h.ax - h.ox) * 0.12;
+            const by = h.oy - (h.ay - h.oy) * 0.12;
+            h.x = h.ox + (bx - h.ox) * k;
+            h.y = h.oy + (by - h.oy) * k;
+          } else if (a < 0.42) {
+            const k = easeOut((a - 0.16) / 0.26);
+            const bx = h.ox - (h.ax - h.ox) * 0.12;
+            const by = h.oy - (h.ay - h.oy) * 0.12;
+            h.x = bx + (h.ax - bx) * k;
+            h.y = by + (h.ay - by) * k;
+            // послесвечение-шлейф
+            this.parts.push({ x: h.x, y: h.y - 10, vx: 0, vy: 0, life: 0.22, max: 0.22, size: 7, color: `${h.def.glow}66`, glow: true, grav: 0 });
+            if (!h.struck && k > 0.75) {
+              h.struck = true;
+              const ang = Math.atan2(h.ay - h.y, h.ax - h.x);
+              this.arcs.push({ x: h.ax, y: h.ay - 6, ang, spread: 2.1, r: 66, life: 0.2, max: 0.2, color: h.def.glow, width: 4.5 });
+              const tgt = this.nearestEnemy(h.ax, h.ay, 70);
+              if (tgt) {
+                this.hurtEnemy(tgt, this.effAtk() * 1.1, false, Math.cos(ang) * 130, Math.sin(ang) * 130);
+                this.burst(h.ax, h.ay - 8, h.def.glow, 8, true);
+              }
+              sfx.slash();
+              this.hitstop = Math.max(this.hitstop, 0.02);
+            }
+          } else {
+            const k = easeOut((a - 0.42) / 0.58);
+            h.x = h.ax + (sx - h.ax) * k;
+            h.y = h.ay + (sy - h.ay) * k;
+          }
+        } else if (w === "bow") {
+          // лёгкий отшаг назад, натяжение, выстрел на 0.34, возврат
+          if (a < 0.34) {
+            const k = Math.sin((a / 0.34) * Math.PI);
+            h.x = h.ox - (h.ax - h.ox) * 0.08 * k;
+            h.y = h.oy - (h.ay - h.oy) * 0.08 * k;
+            if (!h.fired && a >= 0.3) {
+              h.fired = true;
+              const ang = Math.atan2(h.ay - h.y, h.ax - h.x);
+              this.projs.push({
+                x: h.x, y: h.y - 12, vx: Math.cos(ang) * 620, vy: Math.sin(ang) * 620,
+                r: 8, dmg: this.effAtk() * 0.75, from: "ally", life: 0.9,
+                color: h.def.glow, kind: "arrow", pierce: 3, hits: new Set(),
+              });
+              sfx.arrow();
+            }
+          } else {
+            const k = easeOut((a - 0.34) / 0.66);
+            h.x = h.x + (sx - h.x) * k * 0.2;
+            h.y = h.y + (sy - h.y) * k * 0.2;
+          }
         } else {
-          const k = Math.min(1, dt * 7);
-          h.x += (sx - h.x) * k;
-          h.y += (sy - h.y) * k;
+          // посох: парит вверх, вспышка на 0.38, опускается
+          const lift = Math.sin(a * Math.PI);
+          h.x = h.ox + (sx - h.ox) * a;
+          h.y = h.oy - 26 * lift + (sy - h.oy) * a * 0.4;
+          if (!h.fired && a >= 0.38) {
+            h.fired = true;
+            this.doStaffAction(h);
+          }
         }
-        if (Math.random() < dt * 30) {
-          this.parts.push({ x: h.x, y: h.y - 8, vx: 0, vy: -20, life: 0.25, max: 0.25, size: 5, color: `${h.def.glow}88`, glow: true, grav: 0 });
-        }
+        if (a >= 1) h.anim = -1;
         return;
       }
 
@@ -1539,53 +1621,58 @@ export class Engine {
       h.y += (sy - h.y) * k;
       if (h.atkT > 0) return;
 
+      // ---- запуск атаки ----
       const w = h.def.weapon;
+      const startAnim = (tx: number, ty: number, dur: number) => {
+        h.anim = 0;
+        h.dur = dur;
+        h.ox = h.x;
+        h.oy = h.y;
+        h.ax = tx;
+        h.ay = ty;
+        h.struck = false;
+        h.fired = false;
+      };
       if (w === "blade") {
         const target = this.nearestEnemy(h.x, h.y, 260);
         if (!target) return;
         h.atkT = 1.15;
-        h.tx = target.x;
-        h.ty = target.y;
-        h.lunge = 1;
-        const a = Math.atan2(target.y - h.y, target.x - h.x);
-        this.arcs.push({ x: target.x, y: target.y - 6, ang: a, spread: 1.9, r: 62, life: 0.16, max: 0.16, color: h.def.glow, width: 4 });
-        this.hurtEnemy(target, this.effAtk() * 1.1, false, Math.cos(a) * 120, Math.sin(a) * 120);
-        sfx.slash();
+        const reach = Math.max(24, Math.hypot(target.x - h.x, target.y - h.y) - target.r - 8);
+        const ang = Math.atan2(target.y - h.y, target.x - h.x);
+        startAnim(h.x + Math.cos(ang) * reach, h.y + Math.sin(ang) * reach, 0.62);
       } else if (w === "bow") {
         const target = this.nearestEnemy(h.x, h.y, 440);
         if (!target) return;
         h.atkT = 1.35;
-        h.lunge = 1;
-        const a = Math.atan2(target.y - h.y, target.x - h.x);
-        this.projs.push({
-          x: h.x, y: h.y - 12, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620,
-          r: 8, dmg: this.effAtk() * 0.75, from: "ally", life: 0.9,
-          color: h.def.glow, kind: "arrow", pierce: 3, hits: new Set(),
-        });
-        sfx.arrow();
+        startAnim(target.x, target.y, 0.7);
       } else {
         h.atkT = 2.4;
-        h.lunge = 1;
-        if (p.hp < p.maxHp * 0.78) {
-          const heal = p.maxHp * 0.085;
-          p.hp = Math.min(p.maxHp, p.hp + heal);
-          this.floats.push({ x: p.x, y: p.y - 30, life: 0.8, max: 0.8, text: `+${Math.round(heal)}`, color: "#7bffce", size: 17 });
-          this.burst(p.x, p.y - 14, "#7bffce", 10, true);
-          sfx.heal();
-        } else {
-          const target = this.nearestEnemy(h.x, h.y, 380);
-          if (target) {
-            const a = Math.atan2(target.y - h.y, target.x - h.x);
-            this.projs.push({
-              x: h.x, y: h.y - 14, vx: Math.cos(a) * 460, vy: Math.sin(a) * 460,
-              r: 9, dmg: this.effAtk() * 0.6, from: "ally", life: 1,
-              color: "#35f0d0", kind: "bolt", pierce: 1, hits: new Set(),
-            });
-            sfx.magic();
-          }
-        }
+        startAnim(sx, sy, 0.95);
       }
     });
+  }
+
+  private doStaffAction(h: HeroineUnit) {
+    const p = this.player;
+    this.arcs.push({ x: h.x, y: h.y - 14, ang: 0, spread: Math.PI * 2, r: 44, life: 0.3, max: 0.3, color: h.def.glow, width: 3 });
+    if (p.hp < p.maxHp * 0.78) {
+      const heal = p.maxHp * 0.085;
+      p.hp = Math.min(p.maxHp, p.hp + heal);
+      this.floats.push({ x: p.x, y: p.y - 30, life: 0.8, max: 0.8, text: `+${Math.round(heal)}`, color: "#7bffce", size: 17 });
+      this.burst(p.x, p.y - 14, "#7bffce", 10, true);
+      sfx.heal();
+    } else {
+      const target = this.nearestEnemy(h.x, h.y, 380);
+      if (target) {
+        const a = Math.atan2(target.y - h.y, target.x - h.x);
+        this.projs.push({
+          x: h.x, y: h.y - 14, vx: Math.cos(a) * 460, vy: Math.sin(a) * 460,
+          r: 9, dmg: this.effAtk() * 0.6, from: "ally", life: 1,
+          color: "#35f0d0", kind: "bolt", pierce: 1, hits: new Set(),
+        });
+        sfx.magic();
+      }
+    }
   }
 
   private nearestEnemy(x: number, y: number, maxDist: number): Enemy | null {
@@ -2193,10 +2280,16 @@ export class Engine {
         y: h.y,
         draw: () => {
           const def = h.def;
+          let pose = -1;
+          if (h.anim >= 0) {
+            const a = h.anim;
+            pose = a < 0.16 ? -0.4 * (a / 0.16) : Math.min(1, (a - 0.16) / 0.3);
+            if (a > 0.6) pose = 1 - (a - 0.6) / 0.4;
+          }
           drawChibi(ctx, {
             x: h.x, y: h.y, scale: 0.95, t: h.t,
-            face: h.tx >= h.x ? 1 : -1, moving: h.lunge > 0,
-            attack: h.lunge > 0 ? 1 - h.lunge : -1,
+            face: h.ax >= h.x ? 1 : -1, moving: h.anim < 0,
+            attack: pose,
             palette: { hair: def.hair, hairDark: def.hairDark, skin: def.skin, dress: def.dress, accent: def.accent, eyes: def.eyes },
             style: def.style, weapon: def.weapon, glow: def.glow,
           });
