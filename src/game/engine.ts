@@ -773,6 +773,7 @@ export class Engine {
       locked: this.lockId !== null,
       classId: this.classId,
       lostRunes: this.lostRunes,
+      coOp: this.coOp && !!this.p2,
     };
   }
 
